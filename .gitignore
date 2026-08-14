@@ -1,0 +1,6 @@
+# Build outputs
+lib/
+release/
+
+# Dependencies (workspace-managed in the monorepo; standalone snapshots never install)
+node_modules/
