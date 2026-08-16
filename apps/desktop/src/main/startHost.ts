@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFileSync } from 'node:fs'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   boot,
   composeEntries,
@@ -27,7 +28,6 @@ import {
   loadProfile,
   PROFILE_PATCH_FILENAME,
   watchUserPatches,
-  type PatchOptions,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
@@ -37,7 +37,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 const NAME = 'dsh-desktop'
 
 /** Absolute path of this app's package.json (src/ and lib/ both sit one level under apps/desktop). */
-export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
+const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets (mirror of apps/cli). */
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'

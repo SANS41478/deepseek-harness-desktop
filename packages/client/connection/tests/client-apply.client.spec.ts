@@ -9,9 +9,12 @@ import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
+import { ElectronApiClient } from '../src/client/electron-api-client.ts'
+import type { DshApiBridge, DshFetchRequest, DshFetchResponse } from '../src/wire.ts'
 
 type Win = { location?: { hostname: string; search: string; origin?: string } }
 type WebSocketGlobal = { WebSocket?: typeof WebSocket }
+type ShellFact = { __DSH_TRANSPORT__?: string; dshApi?: DshApiBridge }
 
 const originalWebSocket = globalThis.WebSocket
 const sockets: FakeWebSocket[] = []
@@ -47,8 +50,20 @@ class FakeWebSocket extends EventTarget {
   }
 }
 
+/** Minimal preload-bridge stub for the IPC carrier selection tests. */
+function fakeBridge(): DshApiBridge {
+  return {
+    fetch(_request: DshFetchRequest): Promise<DshFetchResponse> {
+      return Promise.resolve({ ok: true, status: 200, headers: {}, bodyText: '{}' })
+    },
+    subscribe(): () => void { return () => {} },
+  }
+}
+
 afterEach(() => {
   delete (globalThis as Win).location
+  delete (globalThis as ShellFact).__DSH_TRANSPORT__
+  delete (globalThis as ShellFact).dshApi
   sockets.length = 0
   if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
   else globalThis.WebSocket = originalWebSocket
@@ -82,6 +97,28 @@ describe('connection client apply', () => {
   it('reports non-loopback page authority through the connection handle', async () => {
     ;(globalThis as Win).location = { hostname: '192.0.2.20', search: '' }
     expect((await mount()).isLoopback).toBe(false)
+  })
+
+  it('selects the Electron IPC carrier when the shell publishes the ipc transport fact with a bridge', async () => {
+    ;(globalThis as ShellFact).__DSH_TRANSPORT__ = 'ipc'
+    ;(globalThis as ShellFact).dshApi = fakeBridge()
+    const handle = await mount()
+    expect(handle.api).toBeInstanceOf(ElectronApiClient)
+  })
+
+  it('stays on WebApiClient when only the transport marker or only the bridge is present', async () => {
+    ;(globalThis as ShellFact).__DSH_TRANSPORT__ = 'ipc'
+    expect((await mount()).api).toBeInstanceOf(WebApiClient)
+    delete (globalThis as ShellFact).__DSH_TRANSPORT__
+    ;(globalThis as ShellFact).dshApi = fakeBridge()
+    expect((await mount()).api).toBeInstanceOf(WebApiClient)
+  })
+
+  it('keeps the fixture client on an ipc page over the shell bridge', async () => {
+    ;(globalThis as Win).location = { hostname: 'localhost', search: '?fixture' }
+    ;(globalThis as ShellFact).__DSH_TRANSPORT__ = 'ipc'
+    ;(globalThis as ShellFact).dshApi = fakeBridge()
+    expect((await mount()).api).toBeInstanceOf(FixtureApiClient)
   })
 
   it('start() hands out one loop, rejects a second consumer, and stop() aborts the streams', async () => {

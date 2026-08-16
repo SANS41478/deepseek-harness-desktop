@@ -25,13 +25,19 @@ import type {
   DshFetchResponse,
   DshStreamChannel,
   DshStreamMessage,
-} from '../shared/dsh-api.ts'
+} from '@deepseek-ai/dsh-client-connection/wire'
 
 /** The ApiProxy face the host provides under the `apiProxy` service key. */
 interface DesktopApiProxy {
   events: {
-    mux(request: { rpcId: RpcId; payload: Record<string, never> }, signal: AbortSignal): AsyncIterable<{ rpcId: string; payload: MuxFrame }>
-    host(request: { rpcId: RpcId; payload: Record<string, never> }, signal: AbortSignal): AsyncIterable<{ rpcId: string; payload: HostFrame }>
+    mux(
+      request: { rpcId: RpcId; payload: Record<string, never> },
+      signal: AbortSignal,
+    ): AsyncIterable<{ rpcId: string; payload: MuxFrame }>
+    host(
+      request: { rpcId: RpcId; payload: Record<string, never> },
+      signal: AbortSignal,
+    ): AsyncIterable<{ rpcId: string; payload: HostFrame }>
   }
 }
 
@@ -83,7 +89,8 @@ export function installIpcBridge(ctx: Context, webContents: WebContents): () => 
     open: (signal: AbortSignal) => AsyncIterable<{ rpcId: string; payload: MuxFrame | HostFrame }>,
   ): void => {
     const controller = new AbortController()
-    pumps.set(channel, { abort: () => controller.abort() })
+    const abort = (): void => { controller.abort() }
+    pumps.set(channel, { abort })
     void (async () => {
       try {
         for await (const frame of open(controller.signal)) {

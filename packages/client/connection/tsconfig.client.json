@@ -9,13 +9,16 @@
     "src/api-path.ts",
     "src/client/api.ts",
     "src/client/connection.ts",
+    "src/client/electron-api-client.ts",
     "src/client/fixture.ts",
     "src/client/index.ts",
+    "src/client/ipc-rpc.ts",
     "src/client/random-uuid.ts",
     "src/client/rpc.ts",
     "src/client/web-api-client.ts",
     "src/loopback-hostname.ts",
-    "src/rpc.ts"
+    "src/rpc.ts",
+    "src/wire.ts"
   ],
   "references": [
     {

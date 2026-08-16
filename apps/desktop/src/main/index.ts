@@ -91,7 +91,7 @@ if (!gotLock) {
     }
   })
 
-  app.whenReady().then(async () => {
+  void app.whenReady().then(async () => {
     mainWindow = createWindow()
     const webContents = mainWindow.webContents
     try {
@@ -112,6 +112,8 @@ if (!gotLock) {
       console.error('dsh-desktop: host boot failed:', error)
       await shutdown()
     }
+  }).catch((error: unknown) => {
+    console.error('dsh-desktop: unexpected failure:', error)
   })
 
   app.on('window-all-closed', () => {

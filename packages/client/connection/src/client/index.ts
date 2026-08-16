@@ -8,8 +8,11 @@ import type { HostDescription, IApiClient } from './api.ts'
 import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type ConnectionState } from './connection.ts'
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
+import { ElectronApiClient } from './electron-api-client.ts'
 import { createWebConnectionRpc } from './rpc.ts'
+import { createIpcConnectionRpc } from './ipc-rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
+import type { DshApiBridge } from '../wire.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
@@ -79,14 +82,23 @@ export interface ConnectionHandle {
 
 /**
  * Client plugin body: pick the api by page mode and provide ctx.connection.
+ * Carrier selection: a fixture page (`?fixture`) uses the fixture client; an
+ * Electron IPC page (the desktop shell publishes `__DSH_TRANSPORT__ = 'ipc'`
+ * plus the preload `dshApi` bridge) uses {@link ElectronApiClient}; every
+ * other page stays on {@link WebApiClient}.
  * @param ctx - client cordis context.
  */
 export function apply(ctx: Context): void {
   const pageLocation = typeof location === 'undefined' ? undefined : location
   const fixture = pageLocation !== undefined && new URLSearchParams(pageLocation.search).has('fixture')
   const fixtureClient = fixture ? new FixtureApiClient() : undefined
-  const api: IApiClient = fixtureClient ?? new WebApiClient()
-  const rpc = fixtureClient?.rpc ?? createWebConnectionRpc()
+  const shell = (globalThis as { __DSH_TRANSPORT__?: string; dshApi?: DshApiBridge })
+  const bridge = shell.__DSH_TRANSPORT__ === 'ipc' ? shell.dshApi : undefined
+  const ipcCarrier = bridge !== undefined ? new ElectronApiClient(bridge) : undefined
+  const api: IApiClient = fixtureClient ?? ipcCarrier ?? new WebApiClient()
+  const rpc: ClientConnectionRpc = fixtureClient?.rpc ?? (bridge !== undefined
+    ? createIpcConnectionRpc(bridge)
+    : createWebConnectionRpc())
   let started = false
   let description: HostDescription | undefined
   const descriptionListeners = new Set<() => void>()

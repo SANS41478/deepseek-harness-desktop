@@ -13,7 +13,7 @@ import type {
   DshFetchResponse,
   DshStreamChannel,
   DshStreamMessage,
-} from '../shared/dsh-api.ts'
+} from '@deepseek-ai/dsh-client-connection/wire'
 
 const bridge: DshApiBridge = {
   fetch(request: DshFetchRequest): Promise<DshFetchResponse> {
@@ -35,3 +35,4 @@ const bridge: DshApiBridge = {
 }
 
 contextBridge.exposeInMainWorld('dshApi', bridge)
+contextBridge.exposeInMainWorld('__DSH_TRANSPORT__', process.env.DSH_DESKTOP_TRANSPORT === 'ipc' ? 'ipc' : 'loopback')

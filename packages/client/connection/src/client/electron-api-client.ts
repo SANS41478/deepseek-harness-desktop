@@ -1,24 +1,23 @@
 /**
- * Renderer-side IPC carrier: the `AbstractApiClient` subclass for the
- * desktop's IPC transport. Protocol invariants stay in the base class; this
+ * Renderer-side IPC carrier: the `AbstractApiClient` subclass for the desktop
+ * shell's IPC transport. Protocol invariants stay in the base class; this
  * subclass supplies the transport aspect (`doFetch` → preload bridge) and the
  * two downlink stream openers (mux / host → pushed frames), mirroring the
  * browser's `WebApiClient` exactly — the frame parsing, envelope taps, and
  * rpcId discipline are unchanged.
  *
- * The swap point in the shipped browser plugin is
- * `packages/client/connection/src/client/index.ts` (`const api = fixtureClient
- * ?? new WebApiClient()`); graduating this subclass into that package is the
- * documented transport-swap follow-up (see the README).
+ * The connection apply selects this carrier when the boot-time transport fact
+ * marks the page as an Electron IPC page and the preload bridge is present
+ * (see `src/client/index.ts`); plain browser pages stay on `WebApiClient`.
  *
- * @module @deepseek-ai/dsh-desktop/renderer/electron-api-client
+ * @module @deepseek-ai/dsh-client-connection/client/electron-api-client
  */
 
-import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
+import type { ApiProxy, HostFrame, MuxFrame, RpcRequest, ServerRequest } from './api.ts'
+import { AbstractApiClient } from './api.ts'
 import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
-import type { DshApiBridge, DshStreamChannel, DshStreamMessage } from '../shared/dsh-api.ts'
+import type { DshApiBridge, DshStreamChannel, DshStreamMessage } from '../wire.ts'
 
 type Parser<F> = { parse(value: unknown): F }
 
@@ -101,7 +100,7 @@ export class ElectronApiClient extends AbstractApiClient {
           } catch (error) {
             // One corrupt frame must not kill the stream; the client's gap
             // detection covers whatever the frame carried (browser parity).
-            console.error(`[dsh-desktop] dropping malformed frame on ${channel}:`, error)
+            console.error(`[dsh-client-connection] dropping malformed frame on ${channel}:`, error)
             continue
           }
           this.onEnvelope(full)

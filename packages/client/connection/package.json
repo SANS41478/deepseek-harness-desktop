@@ -26,6 +26,10 @@
       "types": "./lib/types/client/index.d.ts",
       "default": "./lib/client.js"
     },
+    "./wire": {
+      "types": "./lib/types/wire.d.ts",
+      "default": "./lib/wire.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },

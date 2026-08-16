@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-client-modules": "workspace:^",
     "@deepseek-ai/dsh-home-paths": "workspace:^",

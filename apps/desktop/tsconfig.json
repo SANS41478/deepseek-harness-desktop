@@ -45,6 +45,9 @@
     },
     {
       "path": "../../packages/client/modules"
+    },
+    {
+      "path": "../../packages/client/connection/tsconfig.host.json"
     }
   ]
 }

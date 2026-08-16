@@ -1,10 +1,14 @@
 /**
- * Cross-process wire contract between the Electron renderer and the main
+ * Cross-process wire contract between an Electron renderer and the main
  * process. Plain JSON only (structured-clone boundaries): no DOM, Node, or
- * Cordis types cross the IPC channel. Shared by the preload bridge, the
- * renderer's {@link ElectronApiClient}, and the main-process IPC handler.
+ * Cordis types cross the IPC channel. Shared by the desktop preload bridge,
+ * the renderer's {@link ElectronApiClient}, and the main-process IPC handler.
  *
- * @module @deepseek-ai/dsh-desktop/shared/dsh-api
+ * Lives in this package (not in the shell) so the renderer's browser bundle
+ * and the shell's Node half read one contract; both halves import type-only
+ * from this module.
+ *
+ * @module @deepseek-ai/dsh-client-connection/wire
  */
 
 /** One unary fetch request the renderer sends over IPC. */
