@@ -1,0 +1,44 @@
+{
+  "name": "@deepseek-ai/dsh-desktop",
+  "description": "Electron desktop shell over the DeepSeek Harness web composition. Loopback mode reuses the browser transport unchanged; the IPC mode (DSH_DESKTOP_TRANSPORT=ipc) is the documented Electron carrier direction and is scaffolded behind the env switch.",
+  "version": "0.1.0-rc.5",
+  "private": true,
+  "type": "module",
+  "main": "lib/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "pnpm --filter @deepseek-ai/dsh-web-frontend build && tsc -p tsconfig.json && electron .",
+    "package": "pnpm build && electron-builder"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-cmdline": "workspace:^",
+    "@deepseek-ai/dsh-client-modules": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
+    "@deepseek-ai/dsh-launch-environment": "workspace:^",
+    "@deepseek-ai/dsh-web-frontend": "workspace:^"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^6.0.3"
+  },
+  "build": {
+    "appId": "ai.deepseek.harness",
+    "productName": "DeepSeek Harness",
+    "files": [
+      "lib/**/*",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*",
+      "node_modules/koffi/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  },
+  "license": "MIT"
+}
