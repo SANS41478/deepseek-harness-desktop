@@ -43,8 +43,9 @@ function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): voi
   }
 }
 
-/** Services required before providing Connection; API Proxy is an optional `/api` fallback. */
-export const inject = ['webServer']
+/** Services required before providing Connection; the HTTP carrier is optional (the
+ *  Electron shell drives the same RPC surface over its own IPC bridge). */
+export const inject: string[] = []
 
 /** Plugin config: the deployment's non-loopback serving authorities. */
 export interface ConnectionConfig {
@@ -119,11 +120,14 @@ const PRIVILEGED_METHODS = new Set([
 ])
 
 /**
- * Mounts the API gateway under the browser transport prefix. Every request on
- * the prefix passes the browser-trust fence first (DNS-rebinding and
- * cross-site defense — [api-request-trust](./api-request-trust.ts));
- * privileged methods additionally pass it with an empty trust list, which
- * pins them to loopback.
+ * Mounts the API gateway under the browser transport prefix when the HTTP
+ * carrier is present. Every request on the prefix passes the browser-trust
+ * fence first (DNS-rebinding and cross-site defense —
+ * [api-request-trust](./api-request-trust.ts)); privileged methods
+ * additionally pass it with an empty trust list, which pins them to loopback.
+ * Without `webServer` (the Electron shell's own IPC bridge) only the
+ * `connection` service is provided; the HTTP route and WebSocket downlinks
+ * are skipped.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -136,42 +140,49 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   if (ctx.get('apiProxy') !== undefined) assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(ctx, trustedHosts)
-  const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
-    async fetch(request) {
-      const pathname = new URL(request.url).pathname
-      const method = pathname.startsWith(`${API_PATH}/`)
-        ? pathname.slice(API_PATH.length + 1)
-        : undefined
-      if (method !== undefined
-        && PRIVILEGED_METHODS.has(method)
-        && !isTrustedApiRequest(request, [])) {
-        return new Response('forbidden', { status: 403 })
-      }
-      if (request.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {
-        return new Response('upgrade required', {
-          status: 426,
-          headers: { connection: 'Upgrade', upgrade: 'websocket' },
-        })
-      }
-      const apiProxy = ctx.get('apiProxy')
-      if (apiProxy === undefined) return new Response('not found', { status: 404 })
-      return toFetchHandler(apiProxy).fetch(request)
-    },
-  })
-  const route: WebRoute = {
-    kind: 'prefix',
-    path: API_PATH,
-    handler: async (req, res) => {
-      if (!isTrustedApiRequest(req, trustedHosts)) {
-        res.writeHead(403)
-        res.end('forbidden')
-        return
-      }
-      await bridge(req, res, fetchHandler, maxRequestBodyBytes)
-    },
+  // The HTTP carrier is optional: the Electron shell drives the same RPC
+  // surface over its own IPC bridge, so without webServer only the service
+  // (and its generic RPC registry) is provided.
+  const webServer = ctx.get('webServer')
+  if (webServer !== undefined) {
+    const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
+      async fetch(request) {
+        const pathname = new URL(request.url).pathname
+        const method = pathname.startsWith(`${API_PATH}/`)
+          ? pathname.slice(API_PATH.length + 1)
+          : undefined
+        if (method !== undefined
+          && PRIVILEGED_METHODS.has(method)
+          && !isTrustedApiRequest(request, [])) {
+          return new Response('forbidden', { status: 403 })
+        }
+        if (request.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {
+          return new Response('upgrade required', {
+            status: 426,
+            headers: { connection: 'Upgrade', upgrade: 'websocket' },
+          })
+        }
+        const apiProxy = ctx.get('apiProxy')
+        if (apiProxy === undefined) return new Response('not found', { status: 404 })
+        return toFetchHandler(apiProxy).fetch(request)
+      },
+    })
+    const route: WebRoute = {
+      kind: 'prefix',
+      path: API_PATH,
+      handler: async (req, res) => {
+        if (!isTrustedApiRequest(req, trustedHosts)) {
+          res.writeHead(403)
+          res.end('forbidden')
+          return
+        }
+        await bridge(req, res, fetchHandler, maxRequestBodyBytes)
+      },
+    }
+    ctx.effect(() => webServer.register(route), 'client-connection: /api route')
   }
-  ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
   ctx.inject(['apiProxy'], (apiCtx) => {
+    if (apiCtx.get('webServer') === undefined) return
     assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
     const registerDownlink = (

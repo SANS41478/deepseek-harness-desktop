@@ -143,6 +143,19 @@ describe('web-app runtime glue', () => {
     await ctx.fiber.dispose()
   })
 
+  it('mounts without webServer (the Electron shell): no dist serving, no URL, webRuntime still provided', async () => {
+    const ctx = new Context()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    apply(ctx, new Config({ printUrl: true, surfaceContext: true, trustedHosts: [] }))
+    await ctx.plugin(SystemPrompt, { persona: '' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(ctx.get('webRuntime')).toEqual({ lanAddresses: [], trustedHosts: [] })
+    expect(log).not.toHaveBeenCalled()
+    const assembly = await ctx.systemPrompt.assemble()
+    expect(assembly.sections.some(entry => entry.name === 'app:web-surface')).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('prints the loopback-only URL line when no LAN snapshot exists', async () => {
     stageDist()
     const ctx = new Context()

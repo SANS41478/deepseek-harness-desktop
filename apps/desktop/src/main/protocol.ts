@@ -2,13 +2,12 @@
  * `dsh://` custom protocol for the IPC transport mode. Replaces the browser
  * HTTP carrier's static serving: the protocol handler serves the built
  * `dsh-web-frontend` dist (index.html with the boot manifest injected, plus
- * its assets) and the client-plugin bundles, reading the composed graph and
- * bundle paths from the client-modules node half exactly as the webserver's
- * routes would.
+ * its assets) and the client-plugin bundles. The bundle surface rides
+ * `ClientModuleRegistry.serveBundleFetch`, the same fetch-shaped handler the
+ * HTTP carrier wraps, so both carriers share one implementation.
  *
  * Registering the scheme as privileged must happen before the app is ready;
- * the handler installs after. See the README for the follow-up that relaxes
- * `ClientModuleRegistry.inject` so the HTTP carrier can be dropped entirely.
+ * the handler installs after.
  *
  * @module @deepseek-ai/dsh-desktop/main/protocol
  */
@@ -20,10 +19,10 @@ import { protocol } from 'electron'
 import type { Context } from '@deepseek-ai/cordis'
 import { injectBootManifest, type WebBootGraph } from '@deepseek-ai/dsh-client-modules'
 
-/** The client-modules face the desktop reads (graph composition + bundle paths). */
+/** The client-modules face the desktop reads (graph composition + bundle serving). */
 interface DesktopClientModules {
   graph(): WebBootGraph
-  clientPath(id: string): string | undefined
+  serveBundleFetch(request: Request): Promise<Response>
 }
 
 const SCHEME = 'dsh'
@@ -82,24 +81,10 @@ export function registerDshProtocol(ctx: Context): void {
     }
 
     // Client-plugin bundles and their source maps: `/plugins/<id>/client.js`.
-    const mapSuffix = '.map'
-    const isSourceMap = pathname.startsWith('/plugins/') && pathname.endsWith(mapSuffix)
-    const bundleSuffix = '/client.js'
-    if (pathname.startsWith('/plugins/') && (pathname.endsWith(bundleSuffix) || isSourceMap)) {
-      const id = pathname.slice('/plugins/'.length, isSourceMap ? -mapSuffix.length : undefined)
-      const clientPath = modules.clientPath(id)
-      if (clientPath === undefined) return new Response('not found', { status: 404 })
-      try {
-        const body = await readFile(isSourceMap ? `${clientPath}.map` : clientPath)
-        return new Response(body, {
-          headers: {
-            'content-type': isSourceMap ? MIME['.map'] ?? 'application/json; charset=utf-8' : MIME['.js'] ?? 'text/javascript; charset=utf-8',
-            'cache-control': 'no-cache',
-          },
-        })
-      } catch {
-        return new Response('bundle not built', { status: 404 })
-      }
+    // The client-modules fetch handler owns the path resolution, MIME, and
+    // loud-404 semantics — the same handler the HTTP carrier wraps.
+    if (pathname.startsWith('/plugins/')) {
+      return modules.serveBundleFetch(request)
     }
 
     // Dist assets (vite emits them under /assets with hashed names).

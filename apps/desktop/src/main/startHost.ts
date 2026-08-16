@@ -36,8 +36,8 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 const NAME = 'dsh-desktop'
 
-/** Absolute path of this app's package.json (src/ and lib/ both sit one level under apps/desktop). */
-const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.meta.url))
+/** Absolute path of this app's package.json (src/main/ and lib/main/ both sit two levels under apps/desktop). */
+const INSTALL_ANCHOR = fileURLToPath(new URL('../../package.json', import.meta.url))
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets (mirror of apps/cli). */
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'
@@ -71,6 +71,13 @@ export interface StartHostOptions {
    * callback that quits the app.
    */
   onExit?: (code: number) => void
+  /**
+   * Whether the composition must mount the HTTP `webServer` service. The
+   * loopback transport needs it (the window loads the served dist); the IPC
+   * transport serves dist and bundles over `dsh://` and disables the
+   * webserver row instead.
+   */
+  webServerRequired?: boolean
 }
 
 /** The settled desktop host: the booted tree and its loopback web URL. */
@@ -79,9 +86,9 @@ export interface DesktopHost {
   ctx: Context
   /**
    * The loopback URL of the in-process web server (loopback transport only;
-   * the IPC transport ignores it).
+   * absent on the IPC transport, which serves over `dsh://`).
    */
-  webUrl: string
+  webUrl?: string
   /** Dispose the whole tree to quiescence (the app's teardown path). */
   dispose(): Promise<void>
 }
@@ -93,6 +100,7 @@ export interface DesktopHost {
  */
 export async function startHost(options: StartHostOptions = {}): Promise<DesktopHost> {
   const profileName = options.profile ?? 'web'
+  const webServerRequired = options.webServerRequired ?? true
   const args = options.args ?? []
   const environment = loadLayeredEnv(NAME)
 
@@ -106,7 +114,27 @@ export async function startHost(options: StartHostOptions = {}): Promise<Desktop
   writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
 
   const composed = composeProfile(profile)
-  const ctx = await boot(NAME, join(profile.dir, PROFILE_ROOT_FILENAME), structuredClone(composed.patches), (hostCtx) => {
+  // The IPC transport carries dist and bundles over dsh:// and needs no HTTP
+  // server: disable the webserver row so the tree mounts carrier-free. The
+  // directory-picker auto row keys off the webserver bind host, which no
+  // longer exists, so the IPC tree pins the Electron interaction directly
+  // (Electron's own dialog backend + the native client surface) as the auto
+  // row's own comment prescribes.
+  const webServerPatch: PatchOptions[] = webServerRequired
+    ? []
+    : [
+      { id: 'webserver', disabled: true },
+      { id: 'directory-picker', disabled: true },
+      {
+        insert: [
+          { id: 'directory-picker-electron', name: '@deepseek-ai/dsh-desktop/directory-picker' },
+          { id: 'ui-directory-picker-native', name: '@deepseek-ai/dsh-client-ui-directory-picker-native' },
+        ],
+      },
+    ]
+  const patches = [...composed.patches, ...webServerPatch]
+  const overlays = [...composed.overlays, ...webServerPatch]
+  const ctx = await boot(NAME, join(profile.dir, PROFILE_ROOT_FILENAME), structuredClone(patches), (hostCtx) => {
     app.current = hostCtx
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment)
     provideCmdline(hostCtx, {
@@ -137,7 +165,7 @@ export async function startHost(options: StartHostOptions = {}): Promise<Desktop
         ...composed.bundlePatches,
         ...loadOptionalPatches(NAME, profile.patchPath) ?? [],
         ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
-        ...composed.overlays,
+        ...overlays,
       ])
       await watchUserPatches(ctx, {
         binName: NAME,
@@ -158,12 +186,12 @@ export async function startHost(options: StartHostOptions = {}): Promise<Desktop
 
   const webServer = ctx.get('webServer') as { port?: number } | undefined
   const port = webServer?.port
-  if (port === undefined) {
-    throw new Error(`dsh-desktop: profile "${profileName}" mounted no webServer service — the desktop requires the web composition`)
+  if (webServerRequired && port === undefined) {
+    throw new Error(`dsh-desktop: profile "${profileName}" mounted no webServer service — the loopback transport requires the web composition`)
   }
   return {
     ctx,
-    webUrl: `http://127.0.0.1:${String(port)}`,
+    ...port !== undefined ? { webUrl: `http://127.0.0.1:${String(port)}` } : {},
     dispose: () => disposeTree(),
   }
 }

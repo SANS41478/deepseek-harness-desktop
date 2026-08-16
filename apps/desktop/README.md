@@ -24,7 +24,7 @@ Two transports, switched by `DSH_DESKTOP_TRANSPORT`:
 
 The renderer's carrier selection lives in `dsh-client-connection`: its browser apply reads the shell-published boot-time transport fact (`window.__DSH_TRANSPORT__ === 'ipc'` plus the preload `dshApi` bridge) and picks `ElectronApiClient` + the IPC generic-RPC caller, staying on `WebApiClient` for every other page. The cross-process wire contract lives in `@deepseek-ai/dsh-client-connection/wire`, imported type-only by both halves.
 
-Both boot the identical harness tree (`src/main/startHost.ts`), which mirrors `apps/cli`'s profile boot: same profile layers, user patch layers, fail-loud guards, and HMR-watched `cordis.patch.yml`. The loopback server binds `--port 0` (OS-assigned) and serves only the window; the IPC mode additionally keeps it as the activation anchor for the `client-modules` node half (which today injects `webServer` — see Follow-ups).
+Both boot the identical harness tree (`src/main/startHost.ts`), which mirrors `apps/cli`'s profile boot: same profile layers, user patch layers, fail-loud guards, and HMR-watched `cordis.patch.yml`. The loopback server binds `--port 0` (OS-assigned) and serves only the window; the IPC transport disables the webserver row entirely (the tree mounts carrier-free) and serves dist, manifest, and bundles over `dsh://` through `ClientModuleRegistry.serveBundleFetch` — the same fetch-shaped handler the HTTP carrier wraps. Because the webserver bind host no longer exists in the IPC tree, the directory-picker auto row (which keys off it) is disabled there and the native interaction is pinned directly instead.
 
 ## File map
 
@@ -33,6 +33,7 @@ src/main/startHost.ts        harness boot glue (Electron-free, testable)
 src/main/index.ts            Electron lifecycle, window, transport switch
 src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps
 src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles)
+src/main/directory-picker.ts Electron dialog backend for the directory-picker seam
 src/preload/index.ts         contextBridge: bridge + __DSH_TRANSPORT__ fact
 ```
 
@@ -50,22 +51,19 @@ Both modes need `DEEPSEEK_API_KEY` (or the model config of your choice in `$DSH_
 
 ## What is real vs scaffold
 
-- **Real**: `startHost` boot; the loopback window; the IPC `dsh:fetch` handler and both stream pumps (`toFetchHandler` is the same handler the browser HTTP bridge uses); the `dsh://` protocol serving dist, manifest, and bundles; the preload bridge; the renderer's `ElectronApiClient` selection (graduated into `dsh-client-connection`); lifecycle/teardown.
-- **Deferred (see follow-ups)**: dropping the loopback HTTP server in IPC mode, chunked export over IPC, and native dialogs.
+- **Real**: `startHost` boot; the loopback window; the IPC `dsh:fetch` handler and both stream pumps (`toFetchHandler` is the same handler the browser HTTP bridge uses); the `dsh://` protocol serving dist, manifest, and bundles; the preload bridge; the renderer's `ElectronApiClient` selection (graduated into `dsh-client-connection`); the carrier-free IPC tree (the webserver row is disabled and the directory picker is the Electron dialog backend, `src/main/directory-picker.ts`, pinned with the native client surface); the electron-builder packaging flow (`pnpm package` / `pnpm package:win`); lifecycle/teardown.
+- **Deferred (see follow-ups)**: chunked export over IPC.
 
 ## Known gaps (IPC mode)
 
 - **Renderer AbortSignal does not cross IPC**: unary cancellation degrades to main-side completion; stream cancellation works (the close channel aborts the pump).
 - **`/api/session.export` is not chunked over IPC**: the bridge buffers the whole response body, which is fine for unary RPC but wrong for large exports; a chunked transfer channel is the follow-up.
-- **Loopback mode keeps the HTTP server alive** even though only the window talks to it; the clean end-state (below) removes it.
 
 ## Follow-ups (codebase changes this app does not make yet)
 
-1. **Relax `ClientModuleRegistry.inject`** (`packages/client/modules`): make `webServer` optional and expose the manifest/bundle serving through a plain fetch handler, so the IPC mode can drop the HTTP carrier entirely (the documented "Electron does not reuse it" end-state).
-2. **Native dialogs**: an Electron backend for the directory-picker seam (`dialog.showOpenDialog`) and native openers, replacing `dsh-host-directory-picker-native` where Electron's own APIs fit.
-3. **Packaging**: electron-builder targets, native-module unpacking (`node-pty`, `koffi`), code signing, auto-update; the `build` field in `package.json` is the starting point.
+1. **Packaging polish**: code signing, auto-update, installer targets (NSIS/dmg); `pnpm package:win` already produces the unpacked win directory, and `package` targets the host platform's default. Native modules (`node-pty`, `koffi`) are unpacked from the asar (`asarUnpack`).
 
-The renderer transport seam (selecting `ElectronApiClient` from a boot-time transport fact) shipped; see the [Agent Note](../../.agents/notes/implemented/feature/2026-08-16-electron-ipc-transport-seam.md).
+The IPC tree drops the HTTP carrier entirely: the webserver row is disabled, and the client-modules graph and bundles are served through `serveBundleFetch` (the same fetch-shaped handler the HTTP carrier wraps). The directory picker is the Electron dialog backend (`dialog.showOpenDialog`), pinned in place of the auto row. See the [Agent Note](../../.agents/notes/implemented/feature/2026-08-16-electron-ipc-transport-seam.md).
 
 ## Repository gates
 

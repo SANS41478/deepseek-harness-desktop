@@ -24,8 +24,9 @@ export { EVENTS_ENDPOINT } from './events.ts'
 /** Cordis plugin name. */
 export const name = 'client-hmr'
 
-/** Required services: the web plugin table and the route registry. */
-export const inject = ['clientModules', 'webServer']
+/** Required services: the web plugin table. The SSE channel needs `webServer`
+ *  and is skipped without it (the Electron shell has no HTTP carrier). */
+export const inject = ['clientModules']
 
 /** Plugin config, validated by the same-named schemastery schema. */
 export interface Config {
@@ -146,6 +147,11 @@ export function apply(ctx: Context, config: Config): void {
   }, 'client-hmr: bundle watches')
 
   // --- /plugins/events SSE channel ----------------------------------------
+  // The channel rides the HTTP carrier; without webServer (the Electron shell
+  // over its own protocol) the watch side still runs and only the SSE route is
+  // skipped.
+  const webServer = ctx.get('webServer')
+  if (webServer === undefined) return
   const connections = new Set<ServerResponse>()
 
   const connect = (res: ServerResponse): void => {
@@ -163,7 +169,7 @@ export function apply(ctx: Context, config: Config): void {
   }
 
   ctx.effect(() => {
-    const disposeRoute = ctx.webServer.register({
+    const disposeRoute = webServer.register({
       kind: 'exact',
       path: EVENTS_ENDPOINT,
       handler: (req, res) => {

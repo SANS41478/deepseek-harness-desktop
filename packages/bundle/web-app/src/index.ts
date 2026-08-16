@@ -31,8 +31,12 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../../..', import.meta.url))
 /** Runtime service that releases Web rows after bind-dependent values resolve. */
 const WEB_RUNTIME_SERVICE = 'webRuntime'
 
-/** Services required before the web runtime can mount. */
-export const inject = ['webServer']
+/**
+ * Services required before the web runtime can mount. None: the HTTP carrier
+ * is optional (the Electron shell drives the same surface over its own
+ * protocol), so `apply` reads `webServer` with `ctx.get`.
+ */
+export const inject: string[] = []
 
 /** Plugin config: composed deployment settings plus per-invocation command-line values. */
 export interface Config {
@@ -110,9 +114,7 @@ function localWebUrl(ctx: Context): string {
   const port = ctx.get('webServer')?.port
   if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
   return `http://${LOOPBACK_HOST}:${String(port)}`
-}
-
-/** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */
+}/** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */
 function resolveDistIndex(): string {
   const require = createRequire(import.meta.url)
   try {
@@ -128,16 +130,23 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
 
 /**
  * Mount the Web runtime: dist serving, surface prompt, the bash runtime
- * variable, and the URL line.
- * @param ctx - plugin context carrying the webServer service.
+ * variable, and the URL line. The HTTP carrier is optional: without
+ * `webServer` (the Electron shell over its own protocol), dist serving, the
+ * URL-dependent surface context, and the URL line are skipped while the
+ * `webRuntime` service still provides the trust snapshot the sibling rows
+ * read.
+ * @param ctx - cordis context; `webServer` is read with `ctx.get` when present.
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
-  const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts)
+  const webServer = ctx.get('webServer')
+  const runtime = resolveLanTrust(webServer?.host ?? LOOPBACK_HOST, config.trustedHosts)
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
-  ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
-  if (config.surfaceContext) {
+  if (webServer !== undefined) {
+    ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  }
+  if (config.surfaceContext && webServer !== undefined) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)
       promptCtx.systemPrompt.section({
@@ -156,7 +165,7 @@ export function apply(ctx: Context, config: Config): void {
       })
     })
   }
-  if (config.printUrl) {
+  if (config.printUrl && webServer !== undefined) {
     // The URL line is a readiness signal: supervisors (and the keyless CLI
     // smoke) RPC as soon as they observe it, so it must not print while
     // sibling rows (the /api route owner) are still mounting. Await Loader

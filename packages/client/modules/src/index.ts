@@ -5,7 +5,9 @@
  * in `./client/manifest.ts`), serves `/plugins/<id>/client.js` and its source
  * map, taps the index render to inject the boot manifest, and provides the
  * `clientModuleHost` service (the HMR node half's registration/notification
- * face).
+ * face). The HTTP carrier is optional: when `webServer` is absent (the
+ * Electron shell's own protocol), the same graph and bundles are reachable
+ * through {@link ClientModuleRegistry.serveBundleFetch}.
  *
  * Scanning is incremental per package — there is no full-rescan code path.
  * Every cordis `internal/plugin` emission (fiber construction/disposal) marks
@@ -182,7 +184,9 @@ export function injectBootManifest(html: string, graph: WebBootGraph): string {
  * boot activation audit reports it).
  */
 export class ClientModuleRegistry extends Service {
-  static inject = ['webServer', 'loader']
+  // webServer is optional: the Electron shell serves the same bundle graph
+  // over its own protocol and must not require the HTTP carrier.
+  static inject = ['loader']
 
   private readonly table = new Map<string, WebPluginRecord>()
   // Negative verdicts (unresolvable specifier — builtins like cordis:include,
@@ -238,14 +242,19 @@ export class ClientModuleRegistry extends Service {
       throw new ClientPackageCompositionError(failures)
     }
 
-    ctx.effect(
-      () => ctx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
-      'client-modules: bundle route',
-    )
-    ctx.effect(
-      () => ctx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
-      'client-modules: boot manifest injection',
-    )
+    // The HTTP carrier is optional: the Electron shell serves the same graph
+    // and bundles through its own protocol and must not require webServer.
+    const webServer = ctx.get('webServer')
+    if (webServer !== undefined) {
+      ctx.effect(
+        () => webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        'client-modules: bundle route',
+      )
+      ctx.effect(
+        () => webServer.tapIndex(html => injectBootManifest(html, this.composed)),
+        'client-modules: boot manifest injection',
+      )
+    }
   }
 
   /**
@@ -418,14 +427,8 @@ export class ClientModuleRegistry extends Service {
     }
   }
 
-  private readonly serveBundle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      res.writeHead(405)
-      res.end()
-      return
-    }
-    /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
-    const pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)
+  /** Resolve one `/plugins/<id>/client.js[.map]` request to its on-disk path. */
+  private resolveBundlePath(pathname: string): { path: string; isSourceMap: boolean } | undefined {
     // The id may contain a scope slash. Anything else under /plugins (including
     // /plugins/events when the HMR row is absent) is an unknown resource.
     const prefix = '/plugins/'
@@ -436,16 +439,73 @@ export class ClientModuleRegistry extends Service {
     const clientPath = pathname.startsWith(prefix) && pathname.endsWith(suffix)
       ? this.clientPath(pathname.slice(prefix.length, -suffix.length))
       : undefined
-    const path = clientPath === undefined ? undefined : `${clientPath}${isSourceMap ? '.map' : ''}`
-    if (path === undefined) {
+    return clientPath === undefined
+      ? undefined
+      : { path: `${clientPath}${isSourceMap ? '.map' : ''}`, isSourceMap }
+  }
+
+  /**
+   * Pure fetch-shaped bundle handler for non-HTTP carriers: serves the client
+   * bundles and their source maps from the composed graph. The Electron shell's
+   * `dsh://` protocol drives this directly; the HTTP carrier wraps it.
+   * @param request - a GET/HEAD request whose pathname selects a bundle.
+   * @returns the bundle response, or a 404 for unknown resources and 405 for
+   * non-GET/HEAD methods.
+   */
+  serveBundleFetch(request: Request): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      return Promise.resolve(new Response(null, { status: 405 }))
+    }
+    let pathname: string
+    try {
+      pathname = decodeURIComponent(new URL(request.url).pathname)
+    } catch {
+      return Promise.resolve(new Response('bad request', { status: 400 }))
+    }
+    const resolved = this.resolveBundlePath(pathname)
+    if (resolved === undefined) {
+      return Promise.resolve(new Response(null, { status: 404 }))
+    }
+    return readFile(resolved.path)
+      .then(body => new Response(body, {
+        headers: {
+          'content-type': resolved.isSourceMap ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
+          'cache-control': 'no-cache',
+        },
+      }))
+      .catch(() => {
+        // Registered but unreadable (bundle not built yet): loud 404 beats a
+        // silent SPA-fallback HTML page.
+        return new Response(null, { status: 404 })
+      })
+  }
+
+  private readonly serveBundle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    /* v8 ignore next -- `?? '/'` arm: node:http always sets url on server requests. */
+    const rawPath = new URL(req.url ?? '/', 'http://x').pathname
+    let pathname: string
+    try {
+      pathname = decodeURIComponent(rawPath)
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const resolved = this.resolveBundlePath(pathname)
+    if (resolved === undefined) {
       res.writeHead(404)
       res.end()
       return
     }
     try {
-      const body = await readFile(path)
+      const body = await readFile(resolved.path)
       res.writeHead(200, {
-        'content-type': isSourceMap ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
+        'content-type': resolved.isSourceMap ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
         'cache-control': 'no-cache',
       })
       res.end(body)

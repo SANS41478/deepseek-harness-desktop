@@ -149,4 +149,51 @@ describe('client bundle activation', () => {
     })
     expect(body).toBe(map)
   })
+
+  it('constructs without webServer and serves bundles through the fetch handler', async () => {
+    const packageName = '@fixture/fetch-only'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(root!).href + '/'
+    ctx.provide('loader', {
+      *entries() {
+        yield { options: { name: packageName }, fiber: {}, disabled: false }
+      },
+    })
+    const service = new ClientModuleRegistry(ctx)
+
+    const response = await service.serveBundleFetch(
+      new Request(`http://dsh.internal/plugins/${packageName}/client.js`),
+    )
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('text/javascript; charset=utf-8')
+    expect(await response.text()).toBe('module.exports = {}\n')
+  })
+
+  it('answers 404/405/400 through the fetch handler for unknown, non-GET, and malformed requests', async () => {
+    const packageName = '@fixture/fetch-status'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    const ctx = new Context()
+    ctx.baseUrl = pathToFileURL(root!).href + '/'
+    ctx.provide('loader', {
+      *entries() {
+        yield { options: { name: packageName }, fiber: {}, disabled: false }
+      },
+    })
+    const service = new ClientModuleRegistry(ctx)
+
+    expect((await service.serveBundleFetch(
+      new Request('http://dsh.internal/plugins/unknown/client.js'),
+    )).status).toBe(404)
+    expect((await service.serveBundleFetch(
+      new Request(`http://dsh.internal/plugins/${packageName}/client.js`, { method: 'POST' }),
+    )).status).toBe(405)
+    expect((await service.serveBundleFetch(
+      new Request('http://dsh.internal/plugins/%zz/client.js'),
+    )).status).toBe(400)
+  })
 })

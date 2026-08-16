@@ -5,20 +5,31 @@
   "private": true,
   "type": "module",
   "main": "lib/main/index.js",
+  "exports": {
+    "./directory-picker": {
+      "types": "./lib/main/directory-picker.d.ts",
+      "default": "./lib/main/directory-picker.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "pnpm --filter @deepseek-ai/dsh-web-frontend build && tsc -p tsconfig.json && electron .",
-    "package": "pnpm build && electron-builder"
+    "stage-app": "node scripts/stage-app.mjs",
+    "package": "pnpm build && pnpm stage-app && node scripts/package-app.mjs",
+    "package:win": "pnpm build && pnpm stage-app && node scripts/package-app.mjs --win"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
-    "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-client-modules": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-directory-picker-native": "workspace:^",
+    "@deepseek-ai/dsh-cmdline": "workspace:^",
     "@deepseek-ai/dsh-home-paths": "workspace:^",
     "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
+    "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
     "@deepseek-ai/dsh-launch-environment": "workspace:^",
     "@deepseek-ai/dsh-web-frontend": "workspace:^"
   },
@@ -31,8 +42,7 @@
     "appId": "ai.deepseek.harness",
     "productName": "DeepSeek Harness",
     "files": [
-      "lib/**/*",
-      "node_modules/**/*"
+      "lib/**/*"
     ],
     "asarUnpack": [
       "node_modules/node-pty/**/*",

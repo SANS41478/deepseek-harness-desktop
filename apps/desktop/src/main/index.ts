@@ -96,9 +96,12 @@ if (!gotLock) {
     const webContents = mainWindow.webContents
     try {
       // The desktop owns no command line: the web-startup provider parses
-      // --port 0 so the in-process server binds an OS-assigned loopback port.
+      // --port 0 so the in-process server binds an OS-assigned loopback port
+      // (loopback transport only; the IPC transport serves over dsh:// and
+      // disables the webserver row instead).
       host = await startHost({
-        args: ['--port', '0'],
+        args: TRANSPORT === 'loopback' ? ['--port', '0'] : [],
+        webServerRequired: TRANSPORT === 'loopback',
         onExit: () => { void shutdown() },
       })
       if (TRANSPORT === 'ipc') {
@@ -106,7 +109,7 @@ if (!gotLock) {
         installIpcBridge(host.ctx, webContents)
         await mainWindow.loadURL('dsh://app/')
       } else {
-        await mainWindow.loadURL(host.webUrl)
+        await mainWindow.loadURL(host.webUrl as string)
       }
     } catch (error) {
       console.error('dsh-desktop: host boot failed:', error)

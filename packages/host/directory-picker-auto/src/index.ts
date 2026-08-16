@@ -25,7 +25,9 @@ export { resolveDirectoryPickerBackend } from './resolve.ts'
 
 /** Cordis plugin name. */
 export const name = 'directory-picker-auto'
-/** Required services: the effective bind host (`webServer`) and the entry tree the backend mounts into (`loader`). */
+
+/** Required services: the effective bind host (`webServer`) and
+the entry tree the backend mounts into (`loader`). */
 export const inject = ['webServer', 'loader']
 
 /**
