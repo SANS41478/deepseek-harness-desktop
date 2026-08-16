@@ -1,0 +1,70 @@
+# `@deepseek-ai/dsh-desktop`
+
+> **Snapshot** — this repository holds the `apps/desktop` skeleton extracted from the
+> [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) monorepo at commit
+> `47f943859bef60e4160492346772ded9b24f765a`. The app is a workspace member there and
+> imports `@deepseek-ai/dsh-*` workspace packages, so this snapshot is a reference copy,
+> not a standalone build: apply it into a deepseek-harness checkout (`apps/desktop/`) to
+> build and run it.
+
+An Electron desktop shell over the DeepSeek Harness web composition. It boots the standard `web` profile **inside the Electron main process** (no separate server process, loopback only) and renders the existing `dsh-web-frontend` UI in a window. The entire frontend stack — the ~30 `dsh-client-ui-*` plugins, the session projection layer, the tool-call tree, approvals, workspaces, settings — is reused unchanged; the desktop only changes the *carrier* between the renderer and the host.
+
+This is a skeleton: the loopback transport is the working baseline, and the IPC transport is scaffolded behind an env switch with its gaps documented below.
+
+## Architecture
+
+The repo's layering note (`.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md`) reserves an "IPC bridge subclass" of `AbstractApiClient` for an Electron shell: only the `doFetch` transport aspect changes, the four-quadrant RPC contract and the base class stay untouched. This app follows that reservation.
+
+Two transports, switched by `DSH_DESKTOP_TRANSPORT`:
+
+| Transport | Renderer | Carrier | Status |
+|---|---|---|---|
+| `loopback` (default) | stock `dsh-web-frontend` dist over `http://127.0.0.1:<port>` | unchanged browser transport: HTTP `/api` + WebSocket downlinks | works today |
+| `ipc` | dist over the `dsh://` custom protocol | `ElectronApiClient` (a `AbstractApiClient` subclass) over the preload `dshApi` bridge | scaffolded |
+
+Both boot the identical harness tree (`src/main/startHost.ts`), which mirrors `apps/cli`'s profile boot: same profile layers, user patch layers, fail-loud guards, and HMR-watched `cordis.patch.yml`. The loopback server binds `--port 0` (OS-assigned) and serves only the window; the IPC mode additionally keeps it as the activation anchor for the `client-modules` node half (which today injects `webServer` — see Follow-ups).
+
+## File map
+
+```
+src/shared/dsh-api.ts        cross-process wire contract (plain JSON only)
+src/main/startHost.ts        harness boot glue (Electron-free, testable)
+src/main/index.ts            Electron lifecycle, window, transport switch
+src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps
+src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles)
+src/preload/index.ts         contextBridge: the only renderer↔main surface
+src/renderer/electron-api-client.ts   AbstractApiClient subclass (IPC carrier)
+src/renderer/carrier.ts      proposal: the connection-package transport seam
+```
+
+## Run
+
+```sh
+pnpm install                       # workspace member via apps/* glob
+pnpm --filter @deepseek-ai/dsh-desktop dev        # loopback mode
+DSH_DESKTOP_TRANSPORT=ipc pnpm --filter @deepseek-ai/dsh-desktop dev   # IPC mode
+```
+
+Both modes need `DEEPSEEK_API_KEY` (or the model config of your choice in `$DSH_HOME/settings.yaml`) exactly like `dsh web`. The `dev` script rebuilds the web frontend dist before launching; the harness reads the same `$DSH_HOME` state as the CLI, so sessions, settings, and profiles are shared with `dsh`.
+
+## What is real vs scaffold
+
+- **Real**: `startHost` boot; the loopback window; the IPC `dsh:fetch` handler and both stream pumps (`toFetchHandler` is the same handler the browser HTTP bridge uses); the `dsh://` protocol serving dist, manifest, and bundles; `ElectronApiClient`; the preload bridge; lifecycle/teardown.
+- **Scaffold**: the renderer is not yet wired to construct `ElectronApiClient` — the shipped connection plugin pins `new WebApiClient()` at boot. The swap is documented in `src/renderer/carrier.ts`; until it lands, IPC mode loads the UI but its wire layer still needs the browser transport (which the loopback server still provides), so `DSH_DESKTOP_TRANSPORT=ipc` is an incomplete end-to-end path.
+
+## Known gaps (IPC mode)
+
+- **Renderer AbortSignal does not cross IPC**: unary cancellation degrades to main-side completion; stream cancellation works (the close channel aborts the pump).
+- **`/api/session.export` is not chunked over IPC**: the bridge buffers the whole response body, which is fine for unary RPC but wrong for large exports; a chunked transfer channel is the follow-up.
+- **Loopback mode keeps the HTTP server alive** even though only the window talks to it; the clean end-state (below) removes it.
+
+## Follow-ups (codebase changes this skeleton intentionally does not make)
+
+1. **Relax `ClientModuleRegistry.inject`** (`packages/client/modules`): make `webServer` optional and expose the manifest/bundle serving through a plain fetch handler, so the IPC mode can drop the HTTP carrier entirely (the documented "Electron does not reuse it" end-state).
+2. **Transport seam in `dsh-client-connection`** (`src/client/index.ts`): select `ElectronApiClient` over `WebApiClient` from a boot-time transport fact; graduate the subclass into that package per the layering note.
+3. **Native dialogs**: an Electron backend for the directory-picker seam (`dialog.showOpenDialog`) and native openers, replacing `dsh-host-directory-picker-native` where Electron's own APIs fit.
+4. **Packaging**: electron-builder targets, native-module unpacking (`node-pty`, `koffi`), code signing, auto-update; the `build` field in `package.json` is the starting point.
+
+## Repository gates
+
+A real PR for this app must also register the project in the appropriate tsconfig aggregate (host side, per the two-aggregate rule), wire `verify-package-invariants` if the app is treated as a package, and pass `pnpm run typecheck && pnpm run lint` plus the relevant `test:gui`/`test:web` lanes.
