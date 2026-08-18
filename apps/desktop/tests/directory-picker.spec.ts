@@ -18,7 +18,18 @@ const electronModule = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('electron', () => electronModule)
+// The picker resolves electron lazily via createRequire; mock the resolver so
+// the dialog surface is test-driven without an Electron runtime.
+vi.mock('node:module', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:module')>()
+  return {
+    createRequire: () => (specifier: string) => {
+      if (specifier === 'electron') return electronModule
+      throw new Error(`unexpected require in test: ${specifier}`)
+    },
+    default: original,
+  }
+})
 
 afterEach(() => {
   vi.clearAllMocks()
