@@ -26,6 +26,7 @@ import { registerDshProtocol, registerDshScheme } from './protocol.ts'
 import { installApplicationMenu } from './menu.ts'
 import { installTray } from './tray.ts'
 import { installUpdater } from './updater.ts'
+import { installTitleBar } from './title-bar.ts'
 
 // electron-updater is a CommonJS module whose named exports come through a
 // star re-export, so Electron's ESM loader cannot detect `autoUpdater`;
@@ -87,6 +88,22 @@ if (!gotLock) {
       width: 1280,
       height: 860,
       show: false,
+      // Hide the application menu bar (File/Edit/View/...) so the window looks
+      // like a normal desktop app; Alt reveals it temporarily, and the menu
+      // accelerators (Ctrl+R, Ctrl+Shift+I, zoom, ...) keep working regardless.
+      autoHideMenuBar: true,
+      // In-window title bar: the system bar is hidden and the shell injects
+      // its own draggable bar (title-bar.ts). Windows keeps the native window
+      // buttons as a floating overlay at the top-right; the overlay height
+      // matches the injected bar so the two read as one strip.
+      titleBarStyle: 'hidden',
+      ...process.platform === 'win32' ? {
+        titleBarOverlay: {
+          color: '#00000000',
+          symbolColor: '#9aa0a6',
+          height: 36,
+        },
+      } : {},
       webPreferences: {
         // The preload uses contextBridge only; sandbox is off because the
         // preload is an ESM module (Electron requires unsandboxed ESM preload).
@@ -129,6 +146,7 @@ if (!gotLock) {
   void app.whenReady().then(async () => {
     mainWindow = createWindow()
     const webContents = mainWindow.webContents
+    installTitleBar(mainWindow)
 
     const updater = installUpdater(autoUpdater, app.isPackaged)
     installApplicationMenu({

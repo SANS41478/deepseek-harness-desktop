@@ -34,8 +34,9 @@ src/main/index.ts            Electron lifecycle, window, transport switch
 src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps + abort
 src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles + /api/* routing)
 src/main/directory-picker.ts Electron dialog backend for the directory-picker seam
+src/main/title-bar.ts        in-window title bar (hidden system bar + injected draggable strip)
 src/main/updater.ts          electron-updater wiring (packaged builds only)
-src/main/menu.ts             application menu (edit/view/window roles + Show Window + Check for Updates)
+src/main/menu.ts             application menu (edit/view/window roles + Show Window + Check for Updates; hidden by default, Alt reveals)
 src/main/tray.ts             tray icon with Show/Quit menu
 src/preload/index.ts         contextBridge: bridge + __DSH_TRANSPORT__ fact
 ```
