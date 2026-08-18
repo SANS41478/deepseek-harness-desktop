@@ -47,7 +47,7 @@ export class ElectronApiClient extends AbstractApiClient {
       ...init?.method !== undefined ? { method: init.method } : {},
       ...init?.headers !== undefined ? { headers: init.headers as Record<string, string> } : {},
       ...typeof init?.body === 'string' ? { body: init.body } : {},
-    }, init?.signal).then(({ ok, status, bodyText }) => new Response(ok ? bodyText : null, { status }))
+    }, init?.signal ?? undefined).then(({ ok, status, bodyText }) => new Response(ok ? bodyText : null, { status }))
   }
 
   protected override openMux(

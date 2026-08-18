@@ -56,6 +56,7 @@ function fakeBridge(): DshApiBridge {
     fetch(_request: DshFetchRequest): Promise<DshFetchResponse> {
       return Promise.resolve({ ok: true, status: 200, headers: {}, bodyText: '{}' })
     },
+    abort(): void {},
     subscribe(): () => void { return () => {} },
   }
 }
