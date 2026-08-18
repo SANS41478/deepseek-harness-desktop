@@ -18,7 +18,7 @@ import z from '@deepseek-ai/schemastery'
 import { addHarnessSourceSection } from '@deepseek-ai/dsh-app-boot'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-shell-env'
 
@@ -110,11 +110,13 @@ function webSurfacePrompt(webUrl: string): string {
 }
 
 /** Resolve the canonical loopback URL from the active Web server. */
-function localWebUrl(ctx: Context): string {
-  const port = ctx.get('webServer')?.port
+function localWebUrl(server: WebServer): string {
+  const port = (server as { port?: number }).port
   if (port === undefined) throw new Error('web-app: webServer service missing while resolving Web runtime')
   return `http://${LOOPBACK_HOST}:${String(port)}`
-}/** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */
+}
+
+/** Dist location is workspace knowledge of this bundle: resolved through the frontend package exports, not configured. */
 function resolveDistIndex(): string {
   const require = createRequire(import.meta.url)
   try {
@@ -139,56 +141,76 @@ export const internals: { resolveDistIndex: () => string } = { resolveDistIndex 
  * @param config - validated {@link Config}.
  */
 export function apply(ctx: Context, config: Config): void {
-  const webServer = ctx.get('webServer')
-  const runtime = resolveLanTrust(webServer?.host ?? LOOPBACK_HOST, config.trustedHosts)
+  const runtime = resolveLanTrust(ctx.get('webServer')?.host ?? LOOPBACK_HOST, config.trustedHosts)
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
-  if (webServer !== undefined) {
+  // The HTTP carrier is optional and may be provided by a sibling row after
+  // this row activates (rows activate in parallel): everything that needs the
+  // served URL or the dist root mounts when the service appears — sync first,
+  // then on the global internal/service event (which crosses fiber isolates).
+  // A webServer-less tree (the Electron shell) never triggers it. The server
+  // instance is captured in the closure: async callbacks (loader.await().then)
+  // run outside this fiber's execution stack, where `ctx.get` proxies refuse.
+  const installCarrier = (server: WebServer): void => {
     ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
-  }
-  if (config.surfaceContext && webServer !== undefined) {
-    ctx.inject(['systemPrompt'], (promptCtx) => {
-      addHarnessSourceSection(promptCtx, SOURCE_ROOT)
-      promptCtx.systemPrompt.section({
-        name: 'app:web-surface',
-        order: -98,
-        text: () => webSurfacePrompt(localWebUrl(promptCtx)),
+    if (config.surfaceContext) {
+      ctx.inject(['systemPrompt'], (promptCtx) => {
+        addHarnessSourceSection(promptCtx, SOURCE_ROOT)
+        promptCtx.systemPrompt.section({
+          name: 'app:web-surface',
+          order: -98,
+          text: () => webSurfacePrompt(localWebUrl(server)),
+        })
       })
-    })
-    ctx.inject(['shellEnv'], (runtimeCtx) => {
-      runtimeCtx.shellEnv.register({
-        name: 'web-runtime',
-        variables: {
-          [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
-        },
-        resolve: () => ({ [DSH_WEB_URL]: localWebUrl(runtimeCtx) }),
+      ctx.inject(['shellEnv'], (runtimeCtx) => {
+        runtimeCtx.shellEnv.register({
+          name: 'web-runtime',
+          variables: {
+            [DSH_WEB_URL]: { description: 'Canonical local URL of the DeepSeek Harness Web GUI serving this session.' },
+          },
+          resolve: () => ({ [DSH_WEB_URL]: localWebUrl(server) }),
+        })
       })
-    })
+    }
+    if (config.printUrl) {
+      // The URL line is a readiness signal: supervisors (and the keyless CLI
+      // smoke) RPC as soon as they observe it, so it must not print while
+      // sibling rows (the /api route owner) are still mounting. Await Loader
+      // settlement first; a hand-built tree without a Loader prints at once.
+      const printUrl = (): void => {
+        // Reuse the exact LAN snapshot provided to the /api trust fence.
+        const lanCandidate = runtime.lanAddresses[0]
+        const url = localWebUrl(server)
+        console.log(`dsh web: ${url}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(server.port)})`}`)
+      }
+      const settled = ctx.get('loader')?.await()
+      if (settled === undefined) printUrl()
+      else {
+        void settled.then(() => {
+          // The tree can be disposed while the boot was in flight (early
+          // SIGTERM); a URL line for a dead server would only mislead, and
+          // reading the torn-down port would turn a clean shutdown into a crash.
+          // ctx.get() is the method form (not the proxy property), so it stays
+          // usable outside this fiber's execution stack.
+          if (ctx.get('webServer') !== undefined) printUrl()
+        // Loader reports a failed boot; this row only stays quiet.
+        }, () => {})
+      }
+    }
   }
-  if (config.printUrl && webServer !== undefined) {
-    // The URL line is a readiness signal: supervisors (and the keyless CLI
-    // smoke) RPC as soon as they observe it, so it must not print while
-    // sibling rows (the /api route owner) are still mounting. Await Loader
-    // settlement first; a hand-built tree without a Loader prints at once.
-    const printUrl = (): void => {
-      // Reuse the exact LAN snapshot provided to the /api trust fence.
-      const lanCandidate = runtime.lanAddresses[0]
-      const port = ctx.webServer.port
-      console.log(`dsh web: ${localWebUrl(ctx)}${lanCandidate === undefined ? '' : ` (LAN: http://${lanCandidate}:${String(port)})`}`)
+  const syncWebServer = ctx.get('webServer')
+  if (syncWebServer !== undefined) {
+    installCarrier(syncWebServer)
+  } else {
+    let disposed = false
+    const onService = (name: string, value: unknown): void => {
+      if (name !== 'webServer' || disposed) return
+      disposed = true
+      disposeListener()
+      installCarrier(value as WebServer)
     }
-    // This row's own activation can precede a sibling failure. The app owns
-    // readiness by waiting for its Loader tree, or prints at once in a
-    // hand-built context without Loader.
-    const settled = ctx.get('loader')?.await()
-    if (settled === undefined) printUrl()
-    else {
-      void settled.then(() => {
-        // The tree can be disposed while the boot was in flight (early
-        // SIGTERM); a URL line for a dead server would only mislead, and
-        // reading the torn-down port would turn a clean shutdown into a crash.
-        if (ctx.get('webServer') !== undefined) printUrl()
-      // Loader reports a failed boot; this row only stays quiet.
-      }, () => {})
-    }
+    const disposeListener = ctx.on('internal/service', onService)
+    const lateWebServer = ctx.get('webServer')
+    if (lateWebServer !== undefined) onService('webServer', lateWebServer)
   }
 }

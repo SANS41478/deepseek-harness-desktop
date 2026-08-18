@@ -31,7 +31,7 @@ import { dirname, join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type { WebBootEntry, WebBootGraph } from './client/manifest.ts'
 
 export type {
@@ -244,16 +244,36 @@ export class ClientModuleRegistry extends Service {
 
     // The HTTP carrier is optional: the Electron shell serves the same graph
     // and bundles through its own protocol and must not require webServer.
-    const webServer = ctx.get('webServer')
-    if (webServer !== undefined) {
+    // A sibling webserver row (rows activate in parallel) may provide the
+    // service after this constructor runs, so register the bundle route and
+    // index tap when the service appears — sync first, then on the global
+    // internal/service event (which crosses fiber isolates).
+    const installCarrier = (server: WebServer): void => {
       ctx.effect(
-        () => webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        () => server.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
         'client-modules: bundle route',
       )
       ctx.effect(
-        () => webServer.tapIndex(html => injectBootManifest(html, this.composed)),
+        () => server.tapIndex(html => injectBootManifest(html, this.composed)),
         'client-modules: boot manifest injection',
       )
+    }
+    const syncWebServer = ctx.get('webServer')
+    if (syncWebServer !== undefined) {
+      installCarrier(syncWebServer)
+    } else {
+      let disposed = false
+      const onService = (name: string, value: unknown): void => {
+        if (name !== 'webServer' || disposed) return
+        disposed = true
+        disposeListener()
+        installCarrier(value as WebServer)
+      }
+      const disposeListener = ctx.on('internal/service', onService)
+      // The service may have been provided between the sync read and the
+      // listener registration; re-check via the non-strict read.
+      const lateWebServer = ctx.get('webServer')
+      if (lateWebServer !== undefined) onService('webServer', lateWebServer)
     }
   }
 

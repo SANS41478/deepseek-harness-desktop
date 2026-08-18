@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
-import type { WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { WebRoute, WebServer, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
@@ -140,11 +140,13 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   if (ctx.get('apiProxy') !== undefined) assertImageBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(ctx, trustedHosts)
-  // The HTTP carrier is optional: the Electron shell drives the same RPC
-  // surface over its own IPC bridge, so without webServer only the service
-  // (and its generic RPC registry) is provided.
-  const webServer = ctx.get('webServer')
-  if (webServer !== undefined) {
+  // The HTTP carrier is optional and may be provided by a sibling row after
+  // this row activates (rows activate in parallel): the /api route and the
+  // WebSocket downlinks register when the service appears — sync first, then
+  // on the global internal/service event (which crosses fiber isolates). A
+  // webServer-less tree (the Electron shell) never triggers them, so only the
+  // connection service (and its generic RPC registry) is provided there.
+  const installCarrier = (server: WebServer): void => {
     const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
       async fetch(request) {
         const pathname = new URL(request.url).pathname
@@ -179,29 +181,43 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         await bridge(req, res, fetchHandler, maxRequestBodyBytes)
       },
     }
-    ctx.effect(() => webServer.register(route), 'client-connection: /api route')
+    ctx.effect(() => server.register(route), 'client-connection: /api route')
+    ctx.inject(['apiProxy'], (apiCtx) => {
+      assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
+      const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
+      const registerDownlink = (
+        path: string,
+        handle: WebUpgradeRoute['handler'],
+      ): void => {
+        apiCtx.effect(() => server.registerUpgrade({
+          path,
+          handler: (req, socket, head) => {
+            if (!isTrustedApiRequest(req, trustedHosts)) {
+              rejectWebSocketUpgrade(socket)
+              return
+            }
+            return handle(req, socket, head)
+          },
+        }), `client-connection: ${path} WebSocket`)
+      }
+      apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
+      registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
+      registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
+    })
   }
-  ctx.inject(['apiProxy'], (apiCtx) => {
-    if (apiCtx.get('webServer') === undefined) return
-    assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
-    const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
-    const registerDownlink = (
-      path: string,
-      handle: WebUpgradeRoute['handler'],
-    ): void => {
-      apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
-        path,
-        handler: (req, socket, head) => {
-          if (!isTrustedApiRequest(req, trustedHosts)) {
-            rejectWebSocketUpgrade(socket)
-            return
-          }
-          return handle(req, socket, head)
-        },
-      }), `client-connection: ${path} WebSocket`)
+  const syncWebServer = ctx.get('webServer')
+  if (syncWebServer !== undefined) {
+    installCarrier(syncWebServer)
+  } else {
+    let disposed = false
+    const onService = (name: string, value: unknown): void => {
+      if (name !== 'webServer' || disposed) return
+      disposed = true
+      disposeListener()
+      installCarrier(value as WebServer)
     }
-    apiCtx.effect(() => () => downlinks.close(), 'client-connection: WebSocket downlinks')
-    registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
-    registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
-  })
+    const disposeListener = ctx.on('internal/service', onService)
+    const lateWebServer = ctx.get('webServer')
+    if (lateWebServer !== undefined) onService('webServer', lateWebServer)
+  }
 }

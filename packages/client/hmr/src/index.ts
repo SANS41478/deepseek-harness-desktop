@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 // Empty type imports carry the clientModuleHost/webServer Context merges.
 import type {} from '@deepseek-ai/dsh-client-modules'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type { PluginsEventFrame } from './events.ts'
 import { EVENTS_ENDPOINT } from './events.ts'
 
@@ -147,51 +147,69 @@ export function apply(ctx: Context, config: Config): void {
   }, 'client-hmr: bundle watches')
 
   // --- /plugins/events SSE channel ----------------------------------------
-  // The channel rides the HTTP carrier; without webServer (the Electron shell
-  // over its own protocol) the watch side still runs and only the SSE route is
-  // skipped.
-  const webServer = ctx.get('webServer')
-  if (webServer === undefined) return
-  const connections = new Set<ServerResponse>()
+  // The channel rides the HTTP carrier, which a sibling row may provide after
+  // this row activates (rows activate in parallel): the SSE route registers
+  // when the service appears — sync first, then on the global
+  // internal/service event (which crosses fiber isolates). Without webServer
+  // (the Electron shell over its own protocol) the watch side still runs and
+  // only the SSE route is skipped.
+  const installCarrier = (server: WebServer): void => {
+    const connections = new Set<ServerResponse>()
 
-  const connect = (res: ServerResponse): void => {
-    res.writeHead(200, {
-      'content-type': 'text/event-stream',
-      'cache-control': 'no-cache',
-      'connection': 'keep-alive',
-    })
-    // Comment line on open so clients/proxies see a live channel even when
-    // no rebuild ever happens; EventSource frame parsing skips it naturally.
-    res.write(': connected\n\n')
-    res.write(sseData({ type: 'graph', graph: ctx.clientModules.graph() }))
-    connections.add(res)
-    res.on('close', () => { connections.delete(res) })
-  }
-
-  ctx.effect(() => {
-    const disposeRoute = webServer.register({
-      kind: 'exact',
-      path: EVENTS_ENDPOINT,
-      handler: (req, res) => {
-        // Named routes match ahead of the carrier's method gate; keep the old
-        // global 405 semantics for non-GET hits on this endpoint.
-        if (req.method !== 'GET' && req.method !== 'HEAD') {
-          res.writeHead(405)
-          res.end()
-          return
-        }
-        connect(res)
-      },
-    })
-    const unsubscribe = ctx.clientModules.onRebuilt((id, rev) => {
-      const line = sseData({ type: 'rebuilt', id, rev })
-      for (const res of connections) res.write(line)
-    })
-    return () => {
-      unsubscribe()
-      disposeRoute()
-      for (const res of connections) res.destroy()
-      connections.clear()
+    const connect = (res: ServerResponse): void => {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        'connection': 'keep-alive',
+      })
+      // Comment line on open so clients/proxies see a live channel even when
+      // no rebuild ever happens; EventSource frame parsing skips it naturally.
+      res.write(': connected\n\n')
+      res.write(sseData({ type: 'graph', graph: ctx.clientModules.graph() }))
+      connections.add(res)
+      res.on('close', () => { connections.delete(res) })
     }
-  }, 'client-hmr: /plugins/events channel')
+
+    ctx.effect(() => {
+      const disposeRoute = server.register({
+        kind: 'exact',
+        path: EVENTS_ENDPOINT,
+        handler: (req, res) => {
+          // Named routes match ahead of the carrier's method gate; keep the old
+          // global 405 semantics for non-GET hits on this endpoint.
+          if (req.method !== 'GET' && req.method !== 'HEAD') {
+            res.writeHead(405)
+            res.end()
+            return
+          }
+          connect(res)
+        },
+      })
+      const unsubscribe = ctx.clientModules.onRebuilt((id, rev) => {
+        const line = sseData({ type: 'rebuilt', id, rev })
+        for (const res of connections) res.write(line)
+      })
+      return () => {
+        unsubscribe()
+        disposeRoute()
+        for (const res of connections) res.destroy()
+        connections.clear()
+      }
+    }, 'client-hmr: /plugins/events channel')
+  }
+  const syncWebServer = ctx.get('webServer')
+  if (syncWebServer !== undefined) {
+    installCarrier(syncWebServer)
+  } else {
+    let disposed = false
+    const onService = (name: string, value: unknown): void => {
+      if (name !== 'webServer' || disposed) return
+      disposed = true
+      disposeListener()
+      installCarrier(value as WebServer)
+    }
+    const disposeListener = ctx.on('internal/service', onService)
+    const lateWebServer = ctx.get('webServer')
+    if (lateWebServer !== undefined) onService('webServer', lateWebServer)
+  }
 }
