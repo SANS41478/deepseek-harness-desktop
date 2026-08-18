@@ -1,0 +1,70 @@
+# `@deepseek-ai/dsh-desktop`
+
+> **Snapshot** — this repository holds the `apps/desktop` skeleton extracted from the
+> [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) monorepo at commit
+> `47f943859bef60e4160492346772ded9b24f765a`. The app is a workspace member there and
+> imports `@deepseek-ai/dsh-*` workspace packages, so this snapshot is a reference copy,
+> not a standalone build: apply it into a deepseek-harness checkout (`apps/desktop/`) to
+> build and run it.
+
+An Electron desktop shell over the DeepSeek Harness web composition. It boots the standard `web` profile **inside the Electron main process** (no separate server process, loopback only) and renders the existing `dsh-web-frontend` UI in a window. The entire frontend stack — the ~30 `dsh-client-ui-*` plugins, the session projection layer, the tool-call tree, approvals, workspaces, settings — is reused unchanged; the desktop only changes the *carrier* between the renderer and the host.
+
+Two transports, switched by `DSH_DESKTOP_TRANSPORT`: `loopback` (default) and `ipc`. Both are end-to-end paths today; the IPC mode is the Electron-native direction and the loopback mode remains the browser-parity baseline.
+
+## Architecture
+
+The repo's layering note (`.agents/notes/implemented/architecture/2026-07-19-gui-layering-and-rpc-protocol.md`) reserves an "IPC bridge subclass" of `AbstractApiClient` for an Electron shell: only the `doFetch` transport aspect changes, the four-quadrant RPC contract and the base class stay untouched. This app follows that reservation.
+
+Two transports, switched by `DSH_DESKTOP_TRANSPORT`:
+
+| Transport | Renderer | Carrier | Status |
+|---|---|---|---|
+| `loopback` (default) | stock `dsh-web-frontend` dist over `http://127.0.0.1:<port>` | unchanged browser transport: HTTP `/api` + WebSocket downlinks | works today |
+| `ipc` | dist over the `dsh://` custom protocol | `ElectronApiClient` (a `AbstractApiClient` subclass) over the preload `dshApi` bridge | end-to-end |
+
+The renderer's carrier selection lives in `dsh-client-connection`: its browser apply reads the shell-published boot-time transport fact (`window.__DSH_TRANSPORT__ === 'ipc'` plus the preload `dshApi` bridge) and picks `ElectronApiClient` + the IPC generic-RPC caller, staying on `WebApiClient` for every other page. The cross-process wire contract lives in `@deepseek-ai/dsh-client-connection/wire`, imported type-only by both halves.
+
+Both boot the identical harness tree (`src/main/startHost.ts`), which mirrors `apps/cli`'s profile boot: same profile layers, user patch layers, fail-loud guards, and HMR-watched `cordis.patch.yml`. The loopback server binds `--port 0` (OS-assigned) and serves only the window; the IPC transport disables the webserver row entirely (the tree mounts carrier-free) and serves dist, manifest, and bundles over `dsh://` through `ClientModuleRegistry.serveBundleFetch` — the same fetch-shaped handler the HTTP carrier wraps. Because the webserver bind host no longer exists in the IPC tree, the directory-picker auto row (which keys off it) is disabled there and the native interaction is pinned directly instead.
+
+## File map
+
+```
+src/main/startHost.ts        harness boot glue (Electron-free, testable)
+src/main/index.ts            Electron lifecycle, window, transport switch
+src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps
+src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles)
+src/main/directory-picker.ts Electron dialog backend for the directory-picker seam
+src/preload/index.ts         contextBridge: bridge + __DSH_TRANSPORT__ fact
+```
+
+The renderer carrier (`ElectronApiClient`, the IPC generic-RPC caller, and the `./wire` cross-process contract) graduated into `@deepseek-ai/dsh-client-connection`; the connection apply selects it from the preload-published transport fact.
+
+## Run
+
+```sh
+pnpm install                       # workspace member via apps/* glob
+pnpm --filter @deepseek-ai/dsh-desktop dev        # loopback mode
+DSH_DESKTOP_TRANSPORT=ipc pnpm --filter @deepseek-ai/dsh-desktop dev   # IPC mode
+```
+
+Both modes need `DEEPSEEK_API_KEY` (or the model config of your choice in `$DSH_HOME/settings.yaml`) exactly like `dsh web`. The `dev` script rebuilds the web frontend dist before launching; the harness reads the same `$DSH_HOME` state as the CLI, so sessions, settings, and profiles are shared with `dsh`.
+
+## What is real vs scaffold
+
+- **Real**: `startHost` boot; the loopback window; the IPC `dsh:fetch` handler and both stream pumps (`toFetchHandler` is the same handler the browser HTTP bridge uses); the `dsh://` protocol serving dist, manifest, and bundles; the preload bridge; the renderer's `ElectronApiClient` selection (graduated into `dsh-client-connection`); the carrier-free IPC tree (the webserver row is disabled and the directory picker is the Electron dialog backend, `src/main/directory-picker.ts`, pinned with the native client surface); the electron-builder packaging flow (`pnpm package` / `pnpm package:win`); lifecycle/teardown.
+- **Deferred (see follow-ups)**: chunked export over IPC.
+
+## Known gaps (IPC mode)
+
+- **Renderer AbortSignal does not cross IPC**: unary cancellation degrades to main-side completion; stream cancellation works (the close channel aborts the pump).
+- **`/api/session.export` is not chunked over IPC**: the bridge buffers the whole response body, which is fine for unary RPC but wrong for large exports; a chunked transfer channel is the follow-up.
+
+## Follow-ups (codebase changes this app does not make yet)
+
+1. **Packaging polish**: code signing, auto-update, installer targets (NSIS/dmg); `pnpm package:win` already produces the unpacked win directory, and `package` targets the host platform's default. Native modules (`node-pty`, `koffi`) are unpacked from the asar (`asarUnpack`).
+
+The IPC tree drops the HTTP carrier entirely: the webserver row is disabled, and the client-modules graph and bundles are served through `serveBundleFetch` (the same fetch-shaped handler the HTTP carrier wraps). The directory picker is the Electron dialog backend (`dialog.showOpenDialog`), pinned in place of the auto row. See the [Agent Note](../../.agents/notes/implemented/feature/2026-08-16-electron-ipc-transport-seam.md).
+
+## Repository gates
+
+A real PR for this app must also register the project in the appropriate tsconfig aggregate (host side, per the two-aggregate rule), wire `verify-package-invariants` if the app is treated as a package, and pass `pnpm run typecheck && pnpm run lint` plus the relevant `test:gui`/`test:web` lanes.
