@@ -17,9 +17,11 @@ import type {
 
 const bridge: DshApiBridge = {
   fetch(request: DshFetchRequest): Promise<DshFetchResponse> {
-    // The renderer's AbortSignal does not cross IPC; the main side owns
-    // request lifetime (documented gap, see the README).
     return ipcRenderer.invoke('dsh:fetch', request) as Promise<DshFetchResponse>
+  },
+
+  abort(requestId: string): void {
+    ipcRenderer.send('dsh:fetch:abort', requestId)
   },
 
   subscribe(channel: DshStreamChannel, onMessage: (message: DshStreamMessage) => void): () => void {

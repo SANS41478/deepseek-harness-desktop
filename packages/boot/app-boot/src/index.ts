@@ -7,6 +7,7 @@
  */
 
 import { pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'
 import { parseEnv } from 'node:util'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
@@ -725,6 +726,32 @@ export async function assertEntriesActivated(ctx: Context, binName: string): Pro
 }
 
 /**
+ * Install a baseUrl-anchored plugin resolver on the Loader when the runtime
+ * provides no Node internal cascaded loader (Electron: the
+ * `node-addon-require-builtin` native addon cannot reach the embedder realm).
+ * Without it the Loader falls back to bare `import()` anchored at the loader
+ * package, which cannot see `$DSH_HOME/profiles/node_modules`; the shim
+ * mirrors what the internal loader does — bare specifiers resolve through the
+ * ordinary parent-walk from the config directory, relative specifiers beside
+ * the config file.
+ * @param ctx - context whose Loader service has been registered.
+ * @param configPath - absolute config file whose directory anchors bare resolution.
+ */
+function installBaseUrlLoaderFallback(ctx: Context, configPath: string): void {
+  const loader = ctx.loader
+  if (loader.internal !== undefined) return
+  const require = createRequire(configPath)
+  loader.internal = {
+    import: (specifier: string, baseUrl: string): Promise<unknown> => {
+      if (specifier.startsWith('.') || specifier.startsWith('cordis:')) {
+        return import(new URL(specifier, baseUrl).href)
+      }
+      return import(pathToFileURL(require.resolve(specifier)).href)
+    },
+  } as unknown as typeof loader.internal
+}
+
+/**
  * Boot the Loader against `absoluteConfigPath` and return only after the whole
  * tree settles. Relative entry names resolve against the config directory;
  * bare package names resolve there by default or against an explicit
@@ -769,6 +796,7 @@ export async function boot(
     ctx.baseUrl = pathToFileURL(dirname(absoluteConfigPath)).href + '/'
     ctx.provide('dshHomePath', dshHomePath)
     await ctx.plugin(Loader)
+    installBaseUrlLoaderFallback(ctx, absoluteConfigPath)
     await prepare?.(ctx)
     stage = 'plugin tree failed to load'
     await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl)

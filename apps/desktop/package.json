@@ -15,9 +15,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "pnpm --filter @deepseek-ai/dsh-web-frontend build && tsc -p tsconfig.json && electron .",
+    "icons": "node scripts/gen-icons.mjs",
     "stage-app": "node scripts/stage-app.mjs",
-    "package": "pnpm build && pnpm stage-app && node scripts/package-app.mjs",
-    "package:win": "pnpm build && pnpm stage-app && node scripts/package-app.mjs --win"
+    "package": "pnpm icons && pnpm build && pnpm stage-app && node scripts/package-app.mjs",
+    "package:win": "pnpm icons && pnpm build && pnpm stage-app && node scripts/package-app.mjs --win"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -31,10 +32,11 @@
     "@deepseek-ai/dsh-host-apiproxy": "workspace:^",
     "@deepseek-ai/dsh-host-directory-picker": "workspace:^",
     "@deepseek-ai/dsh-launch-environment": "workspace:^",
-    "@deepseek-ai/dsh-web-frontend": "workspace:^"
+    "@deepseek-ai/dsh-web-frontend": "workspace:^",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
+    "electron": "^39.0.0",
     "electron-builder": "^25.1.8",
     "typescript": "^6.0.3"
   },
@@ -49,7 +51,33 @@
       "node_modules/koffi/**/*"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": [
+        "dir",
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "DeepSeek Harness"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "deepseek-ai",
+      "repo": "deepseek-harness"
     }
   },
   "license": "MIT"

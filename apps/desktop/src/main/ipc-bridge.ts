@@ -8,9 +8,10 @@
  * `ipcMain.handle('dsh:fetch')`; the two event streams (mux / host) are
  * pumped in the main process and pushed to the renderer as frames.
  *
- * Known gaps (documented in the README): the renderer's AbortSignal does not
- * cross IPC (unary cancellation degrades to main-side completion), and
- * `/api/session.export` bodies are not yet chunked over IPC.
+ * Unary cancellation is cooperative: the renderer mints a request id per
+ * fetch and cancels the inflight request through the `dsh:fetch:abort`
+ * channel (its AbortSignal cannot cross IPC); the main process aborts the
+ * request's signal, and routes that forward the signal stop their work.
  *
  * @module @deepseek-ai/dsh-desktop/main/ipc-bridge
  */
@@ -62,17 +63,32 @@ export function installIpcBridge(ctx: Context, webContents: WebContents): () => 
   }
   const fetchHandler: FetchHandler = toFetchHandler(api as never)
 
+  // One abort controller per inflight request, keyed by the renderer-minted
+  // id; the controller's signal rides the Request handed to the fetch handler.
+  const inflight = new Map<string, AbortController>()
+  const onAbortFetch = (_event: IpcMainEvent, requestId: unknown): void => {
+    if (typeof requestId === 'string') inflight.get(requestId)?.abort()
+  }
+  ipcMain.on('dsh:fetch:abort', onAbortFetch)
+
   ipcMain.handle('dsh:fetch', async (_event, request: DshFetchRequest): Promise<DshFetchResponse> => {
-    const response = await fetchHandler.fetch(new Request(new URL(request.url), {
-      method: request.method ?? 'GET',
-      ...request.headers !== undefined ? { headers: request.headers } : {},
-      ...request.body !== undefined ? { body: request.body } : {},
-    }))
-    return {
-      ok: response.ok,
-      status: response.status,
-      headers: Object.fromEntries(response.headers.entries()),
-      bodyText: await response.text(),
+    const controller = new AbortController()
+    inflight.set(request.requestId, controller)
+    try {
+      const response = await fetchHandler.fetch(new Request(new URL(request.url), {
+        method: request.method ?? 'GET',
+        ...request.headers !== undefined ? { headers: request.headers } : {},
+        ...request.body !== undefined ? { body: request.body } : {},
+        signal: controller.signal,
+      }))
+      return {
+        ok: response.ok,
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        bodyText: await response.text(),
+      }
+    } finally {
+      inflight.delete(request.requestId)
     }
   })
 
@@ -121,8 +137,11 @@ export function installIpcBridge(ctx: Context, webContents: WebContents): () => 
 
   return () => {
     ipcMain.removeHandler('dsh:fetch')
+    ipcMain.removeListener('dsh:fetch:abort', onAbortFetch)
     ipcMain.removeListener('dsh:stream:close', onClose)
     for (const pump of pumps.values()) pump.abort()
+    for (const controller of inflight.values()) controller.abort()
+    inflight.clear()
     pumps.clear()
   }
 }

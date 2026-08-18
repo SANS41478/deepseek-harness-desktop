@@ -15,6 +15,11 @@
 export interface DshFetchRequest {
   /** Absolute URL, including the path (the `/api/<method>` segment). */
   url: string
+  /**
+   * The renderer-minted correlation id: the main process keeps an abort
+   * controller per inflight id and cancels it on `DshApiBridge.abort`.
+   */
+  requestId: string
   /** HTTP method; absent means GET. */
   method?: string
   /** Plain header map; absent means none. */
@@ -58,10 +63,18 @@ export type DshStreamMessage =
 export interface DshApiBridge {
   /**
    * Send one unary fetch through the main process.
-   * @param request - the serialized request.
+   * @param request - the serialized request (carries the correlation id).
    * @returns the serialized response.
    */
   fetch(request: DshFetchRequest): Promise<DshFetchResponse>
+
+  /**
+   * Cancel one inflight fetch: the main process aborts the request's signal.
+   * The renderer's AbortSignal cannot cross IPC, so the caller correlates a
+   * separate cancel message through the request id it minted.
+   * @param requestId - the id the original request carried.
+   */
+  abort(requestId: string): void
 
   /**
    * Subscribe to one event stream.

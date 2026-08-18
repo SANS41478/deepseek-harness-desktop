@@ -1,7 +1,13 @@
 // Run electron-builder against the staged app directory produced by
-// stage-app.mjs. Windows CI without an elevated shell cannot extract
-// winCodeSign's symlinks, so `--win` disables signing/editing of the
-// executable (the unpacked dir target remains fully functional).
+// stage-app.mjs. The win/mac targets (dir+nsis, dmg+zip) come from the
+// package.json build config. Local builds never upload: the package.json
+// `publish` config feeds electron-updater's embedded app-update.yml, and
+// `--publish never` keeps the artifact build from demanding GH_TOKEN; a CI
+// release runs its own publish invocation with the token. Windows CI without
+// an elevated shell cannot extract winCodeSign's symlinks, so `--win` disables
+// signing/editing of the executable (the unpacked dir and NSIS installer
+// remain fully functional); builds with a signing certificate in the CSC_*
+// environment sign normally.
 import { execFileSync } from 'node:child_process'
 import { readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -31,7 +37,7 @@ console.log(`package-app: building ${staging}${win ? ' (win, unsigned)' : ''}`)
 // triggered its pnpm dependency-status check against the staging tree, which
 // re-runs `pnpm install` and fails outside the workspace. Running with
 // cwd=staging and no projectDir keeps it self-contained.
-execFileSync('node', [cli, ...(win
-  ? ['--config.win.signAndEditExecutable=false', '--config.win.target=dir']
+execFileSync('node', [cli, '--publish', 'never', ...(win
+  ? ['--config.win.signAndEditExecutable=false']
   : [])], { cwd: staging, stdio: 'inherit', env: { ...process.env, CI: 'true' } })
 console.log('package-app: done')

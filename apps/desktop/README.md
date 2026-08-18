@@ -31,9 +31,12 @@ Both boot the identical harness tree (`src/main/startHost.ts`), which mirrors `a
 ```
 src/main/startHost.ts        harness boot glue (Electron-free, testable)
 src/main/index.ts            Electron lifecycle, window, transport switch
-src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps
-src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles)
+src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps + abort
+src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles + /api/* routing)
 src/main/directory-picker.ts Electron dialog backend for the directory-picker seam
+src/main/updater.ts          electron-updater wiring (packaged builds only)
+src/main/menu.ts             application menu (edit/view/window roles + Show Window + Check for Updates)
+src/main/tray.ts             tray icon with Show/Quit menu
 src/preload/index.ts         contextBridge: bridge + __DSH_TRANSPORT__ fact
 ```
 
@@ -51,17 +54,16 @@ Both modes need `DEEPSEEK_API_KEY` (or the model config of your choice in `$DSH_
 
 ## What is real vs scaffold
 
-- **Real**: `startHost` boot; the loopback window; the IPC `dsh:fetch` handler and both stream pumps (`toFetchHandler` is the same handler the browser HTTP bridge uses); the `dsh://` protocol serving dist, manifest, and bundles; the preload bridge; the renderer's `ElectronApiClient` selection (graduated into `dsh-client-connection`); the carrier-free IPC tree (the webserver row is disabled and the directory picker is the Electron dialog backend, `src/main/directory-picker.ts`, pinned with the native client surface); the electron-builder packaging flow (`pnpm package` / `pnpm package:win`); lifecycle/teardown.
-- **Deferred (see follow-ups)**: chunked export over IPC.
+- **Real**: `startHost` boot; the loopback window; the IPC `dsh:fetch` handler and both stream pumps (`toFetchHandler` is the same handler the browser HTTP bridge uses); renderer abort over IPC (per-request `requestId`, main-side `AbortController`, and an `abort` bridge channel that cancels in flight); the `dsh://` protocol serving dist, manifest, bundles, and `/api/*` (including chunked `session.export` responses, streamed through `toFetchHandler` with the protocol-layer abort signal); the preload bridge; the renderer's `ElectronApiClient` selection (graduated into `dsh-client-connection`); the carrier-free IPC tree (the webserver row is disabled and the directory picker is the Electron dialog backend, `src/main/directory-picker.ts`, pinned with the native client surface); the application menu and tray (hide-to-tray close, Show Window, Check for Updates); the electron-builder packaging flow (`pnpm package` / `pnpm package:win`) with NSIS/dmg installer targets, icons, and `electron-updater`; lifecycle/teardown.
+- **Deferred (see follow-ups)**: code signing on a CI machine with the `CSC_*` environment (local `package:win` runs unsigned by design, `--config.win.signAndEditExecutable=false`).
 
 ## Known gaps (IPC mode)
 
-- **Renderer AbortSignal does not cross IPC**: unary cancellation degrades to main-side completion; stream cancellation works (the close channel aborts the pump).
-- **`/api/session.export` is not chunked over IPC**: the bridge buffers the whole response body, which is fine for unary RPC but wrong for large exports; a chunked transfer channel is the follow-up.
+None today. Renderer `AbortSignal` crosses IPC via `requestId`/`abort`, and `/api/*` (including `session.export`) is routed through the `dsh://` protocol to `toFetchHandler`, which streams the response body with the protocol-layer abort signal.
 
 ## Follow-ups (codebase changes this app does not make yet)
 
-1. **Packaging polish**: code signing, auto-update, installer targets (NSIS/dmg); `pnpm package:win` already produces the unpacked win directory, and `package` targets the host platform's default. Native modules (`node-pty`, `koffi`) are unpacked from the asar (`asarUnpack`).
+1. **Packaging**: auto-update, installer targets (NSIS/dmg), icons, and the electron-updater publish config are in place; code signing activates when `CSC_*` is set (CI). The unpacked win directory from `pnpm package:win` is unsigned locally. Native modules (`node-pty`, `koffi`) are unpacked from the asar (`asarUnpack`).
 
 The IPC tree drops the HTTP carrier entirely: the webserver row is disabled, and the client-modules graph and bundles are served through `serveBundleFetch` (the same fetch-shaped handler the HTTP carrier wraps). The directory picker is the Electron dialog backend (`dialog.showOpenDialog`), pinned in place of the auto row. See the [Agent Note](../../.agents/notes/implemented/feature/2026-08-16-electron-ipc-transport-seam.md).
 

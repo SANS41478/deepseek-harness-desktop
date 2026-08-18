@@ -7,6 +7,7 @@ import {
 } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type { ClientConnectionRpc } from '../rpc.ts'
 import type { DshApiBridge } from '../wire.ts'
+import { bridgeFetch } from './bridge-fetch.ts'
 import { randomUuid } from './random-uuid.ts'
 
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
@@ -22,7 +23,7 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
  */
 export function createIpcConnectionRpc(bridge: DshApiBridge): ClientConnectionRpc {
   return {
-    async call(channel, endpoint, payload, _signal) {
+    async call(channel, endpoint, payload, signal) {
       assertTarget(channel, endpoint)
       const rpcId = RpcId(randomUuid())
       const message: ClientRequest = {
@@ -31,14 +32,15 @@ export function createIpcConnectionRpc(bridge: DshApiBridge): ClientConnectionRp
         method: endpoint,
         payload,
       }
-      // The renderer's AbortSignal does not cross IPC (documented gap): the
-      // main side owns request lifetime, exactly like the unary carrier.
-      const response = await bridge.fetch({
+      // The renderer's AbortSignal does not cross IPC: `bridgeFetch` mints a
+      // request id and forwards abort as a separate cancel message, exactly
+      // like the unary carrier.
+      const response = await bridgeFetch(bridge, {
         url: `${channel}/${endpoint}`,
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(message),
-      })
+      }, signal)
       if (!response.ok) {
         throw new Error(`transport failure for ${channel}/${endpoint}: HTTP ${response.status}`)
       }

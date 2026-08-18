@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-electron-ipc-transport-seam.md
-2026-08-16-electron-ipc-transport-seam.md: 2785ca21ede90b7b8a14c09b5659351c572322d0
-2026-08-16-electron-ipc-transport-seam.zh.md: 72e59e99d493e00bb100c9335ff326e23cc83ecb
+2026-08-16-electron-ipc-transport-seam.md: 18bfa88b95df7dfba986471a027e1a0170f99e9e
+2026-08-16-electron-ipc-transport-seam.zh.md: b95f8b32a9e16d3c1b04b42bd91c9e9b41d62237

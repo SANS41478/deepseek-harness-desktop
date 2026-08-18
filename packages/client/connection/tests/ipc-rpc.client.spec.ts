@@ -9,12 +9,16 @@ import type { DshApiBridge, DshFetchRequest, DshFetchResponse } from '../src/wir
 
 class FakeBridge implements DshApiBridge {
   readonly calls: DshFetchRequest[] = []
+  readonly aborted: string[] = []
   onFetch: (request: DshFetchRequest) => Promise<DshFetchResponse> = () => Promise.resolve({
     ok: true, status: 200, headers: {}, bodyText: '{}',
   })
   fetch(request: DshFetchRequest): Promise<DshFetchResponse> {
     this.calls.push(request)
     return this.onFetch(request)
+  }
+  abort(requestId: string): void {
+    this.aborted.push(requestId)
   }
   subscribe(): () => void { return () => {} }
 }
@@ -76,7 +80,7 @@ describe('createIpcConnectionRpc', () => {
     expect(bridge.calls).toHaveLength(0)
   })
 
-  it('leaves the caller AbortSignal un-serialized (documented IPC gap)', async () => {
+  it('mints a request id and forwards caller abort as a cancel message', async () => {
     const bridge = new FakeBridge()
     const rpc = createIpcConnectionRpc(bridge)
     const abort = new AbortController()
@@ -88,7 +92,28 @@ describe('createIpcConnectionRpc', () => {
         result: { ok: true, value: null },
       }),
     }))
-    await expect(rpc.call('/api', 'goals/create', {}, abort.signal)).resolves.toMatchObject({ ok: true })
+    const pending = rpc.call('/api', 'goals/create', {}, abort.signal)
+    abort.abort()
+    await expect(pending).rejects.toThrow('This operation was aborted')
     expect(bridge.calls[0]).not.toHaveProperty('signal')
+    expect(bridge.calls[0]?.requestId).toBeTypeOf('string')
+    expect(bridge.aborted).toEqual([bridge.calls[0]?.requestId])
+  })
+
+  it('resolves without aborting when the caller signal never fires', async () => {
+    const bridge = new FakeBridge()
+    const rpc = createIpcConnectionRpc(bridge)
+    bridge.onFetch = request => Promise.resolve({
+      ok: true, status: 200, headers: {},
+      bodyText: JSON.stringify({
+        type: 'server-response',
+        rpcId: (JSON.parse(request.body ?? '{}') as { rpcId: string }).rpcId,
+        result: { ok: true, value: null },
+      }),
+    })
+    await expect(rpc.call('/api', 'goals/create', {}, new AbortController().signal))
+      .resolves.toMatchObject({ ok: true })
+    expect(bridge.calls[0]?.requestId).toBeTypeOf('string')
+    expect(bridge.aborted).toHaveLength(0)
   })
 })

@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
+import { abortError } from '../src/client/bridge-fetch.ts'
 import { ElectronApiClient } from '../src/client/electron-api-client.ts'
 import type {
   DshApiBridge,
@@ -20,6 +21,7 @@ import type {
 /** Test-held bridge: the case drives fetch responses and pushed frames. */
 class FakeBridge implements DshApiBridge {
   readonly fetchCalls: DshFetchRequest[] = []
+  readonly aborted: string[] = []
   readonly subscribed: DshStreamChannel[] = []
   readonly unsubscribed: DshStreamChannel[] = []
   /** Per-channel enqueue handles, assigned on subscribe. */
@@ -32,6 +34,10 @@ class FakeBridge implements DshApiBridge {
   fetch(request: DshFetchRequest): Promise<DshFetchResponse> {
     this.fetchCalls.push(request)
     return this.onFetch(request)
+  }
+
+  abort(requestId: string): void {
+    this.aborted.push(requestId)
   }
 
   subscribe(channel: DshStreamChannel, onMessage: (message: DshStreamMessage) => void): () => void {
@@ -128,7 +134,80 @@ describe('ElectronApiClient', () => {
     }).doFetch.bind(client)
     const response = await doFetch(new URL('http://dsh.internal/api/events.mux'), {})
     expect(response.ok).toBe(true)
-    expect(bridge.fetchCalls[0]).toEqual({ url: 'http://dsh.internal/api/events.mux' })
+    expect(bridge.fetchCalls[0]).toMatchObject({ url: 'http://dsh.internal/api/events.mux' })
+    expect(bridge.fetchCalls[0]).not.toHaveProperty('method')
+    expect(bridge.fetchCalls[0]).not.toHaveProperty('headers')
+    expect(bridge.fetchCalls[0]).not.toHaveProperty('body')
+    expect(bridge.fetchCalls[0]?.requestId).toBeTypeOf('string')
+    expect(bridge.aborted).toHaveLength(0)
+  })
+
+  it('rejects when the caller aborts mid-flight and tells the bridge to cancel', async () => {
+    const bridge = new FakeBridge()
+    const client = new ElectronApiClient(bridge)
+    const abort = new AbortController()
+    let release: (() => void) | undefined
+    bridge.onFetch = () => new Promise((resolve) => { release = () =>{  resolve({ ok: true, status: 200, headers: {}, bodyText: '{}' }) } })
+    const doFetch = (client as unknown as {
+      doFetch(input: URL, init?: RequestInit): Promise<Response>
+    }).doFetch.bind(client)
+    const pending = doFetch(new URL('http://dsh.internal/api/events.mux'), { signal: abort.signal })
+    abort.abort()
+    await expect(pending).rejects.toThrow('This operation was aborted')
+    expect(bridge.aborted).toEqual([bridge.fetchCalls[0]?.requestId])
+    release?.()
+  })
+
+  it('rejects immediately on an already-aborted signal without touching the bridge', async () => {
+    const bridge = new FakeBridge()
+    const client = new ElectronApiClient(bridge)
+    const abort = new AbortController()
+    abort.abort()
+    const doFetch = (client as unknown as {
+      doFetch(input: URL, init?: RequestInit): Promise<Response>
+    }).doFetch.bind(client)
+    await expect(doFetch(new URL('http://dsh.internal/api/events.mux'), { signal: abort.signal }))
+      .rejects.toThrow('This operation was aborted')
+    expect(bridge.fetchCalls).toHaveLength(0)
+    expect(bridge.aborted).toHaveLength(1)
+  })
+
+  it('rejects with the bridge failure and keeps the caller signal wiring intact', async () => {
+    const bridge = new FakeBridge()
+    const client = new ElectronApiClient(bridge)
+    const failure = new Error('bridge died')
+    bridge.onFetch = () => Promise.reject(failure)
+    const doFetch = (client as unknown as {
+      doFetch(input: URL, init?: RequestInit): Promise<Response>
+    }).doFetch.bind(client)
+    const abort = new AbortController()
+    await expect(doFetch(new URL('http://dsh.internal/api/events.mux'), { signal: abort.signal }))
+      .rejects.toBe(failure)
+    expect(bridge.aborted).toHaveLength(0)
+  })
+
+  it('forwards a caller signal and resolves when it never aborts', async () => {
+    const bridge = new FakeBridge()
+    const client = new ElectronApiClient(bridge)
+    const doFetch = (client as unknown as {
+      doFetch(input: URL, init?: RequestInit): Promise<Response>
+    }).doFetch.bind(client)
+    const response = await doFetch(new URL('http://dsh.internal/api/events.mux'), { signal: new AbortController().signal })
+    expect(response.ok).toBe(true)
+    expect(bridge.aborted).toHaveLength(0)
+  })
+
+  it('uses the signal reason for the abort error, falling back to the generic message', () => {
+    const byError = new AbortController()
+    const custom = new Error('custom')
+    byError.abort(custom)
+    const byString = new AbortController()
+    byString.abort('my reason')
+    const byObject = new AbortController()
+    byObject.abort({})
+    expect(abortError(byError.signal)).toBe(custom)
+    expect(abortError(byString.signal)).toMatchObject({ message: 'my reason' })
+    expect(abortError(byObject.signal)).toMatchObject({ message: 'This operation was aborted' })
   })
 
   it('parses mux and host frames from their channels and taps the envelope buffer', async () => {

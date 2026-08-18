@@ -18,6 +18,7 @@ import { AbstractApiClient } from './api.ts'
 import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import type { DshApiBridge, DshStreamChannel, DshStreamMessage } from '../wire.ts'
+import { bridgeFetch } from './bridge-fetch.ts'
 
 type Parser<F> = { parse(value: unknown): F }
 
@@ -37,15 +38,16 @@ export class ElectronApiClient extends AbstractApiClient {
     super(timeoutMs)
   }
 
-  /** Transport aspect: serialize the fetch into the IPC bridge. The
-   *  renderer's AbortSignal is deliberately dropped (it cannot cross IPC). */
+  /** Transport aspect: serialize the fetch into the IPC bridge, forwarding
+   *  caller abort as a separate cancel message (the signal itself cannot cross
+   *  IPC; `bridgeFetch` correlates it through the minted request id). */
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
-    return this.bridge.fetch({
+    return bridgeFetch(this.bridge, {
       url: input.toString(),
       ...init?.method !== undefined ? { method: init.method } : {},
       ...init?.headers !== undefined ? { headers: init.headers as Record<string, string> } : {},
       ...typeof init?.body === 'string' ? { body: init.body } : {},
-    }).then(({ ok, status, bodyText }) => new Response(ok ? bodyText : null, { status }))
+    }, init?.signal).then(({ ok, status, bodyText }) => new Response(ok ? bodyText : null, { status }))
   }
 
   protected override openMux(

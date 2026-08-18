@@ -2,13 +2,13 @@
 // (pnpm deploy keeps `link:` workspace overrides — cosmokit, schemastery —
 // as junctions to the repository) with real directory copies, so
 // electron-builder's asar packaging never resolves a path outside the app.
-// Windows junctions are directories to Node but carry a reparse target that
-// PowerShell surfaces as LinkType/Target; this script shells out to PowerShell
-// for the detection and copies with Node for the content.
-import { cpSync, existsSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+// Windows junctions are reported as symbolic links by Node's directory
+// entries, so detection walks the tree with readdirSync and resolves each
+// link's real target — no shelling out to PowerShell, which would mangle
+// non-ASCII paths through the OEM code page.
+import { cpSync, existsSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { execFileSync } from 'node:child_process'
 
 const staging = resolve(process.argv[2] ?? '')
 if (!staging || !existsSync(staging)) {
@@ -17,26 +17,26 @@ if (!staging || !existsSync(staging)) {
 
 /** List of junction paths (and their resolved targets) under `root`. */
 function listJunctions(root) {
-  const script = [
-    'param($root)',
-    'Get-ChildItem -Path $root -Recurse -Force -ErrorAction SilentlyContinue |',
-    '  Where-Object { $_.LinkType } |',
-    '  ForEach-Object { "$($_.FullName)`t$($_.Target)" }',
-  ].join('\n')
-  const scriptPath = join(process.env.TEMP ?? '.', 'list-junctions.ps1')
-  writeFileSync(scriptPath, script)
-  try {
-    const out = execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, root], {
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    })
-    return out.split(/\r?\n/).filter(Boolean).map(line => {
-      const tab = line.indexOf('\t')
-      return { path: line.slice(0, tab), target: line.slice(tab + 1) }
-    })
-  } finally {
-    rmSync(scriptPath, { force: true })
+  const junctions = []
+  const walk = (dir) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      // Unreadable or concurrently-removed directory; nothing to flatten.
+      return
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name)
+      if (entry.isSymbolicLink()) {
+        junctions.push({ path: full, target: realpathSync(full) })
+        continue
+      }
+      if (entry.isDirectory()) walk(full)
+    }
   }
+  walk(root)
+  return junctions
 }
 
 const stagingRoot = resolve(staging)

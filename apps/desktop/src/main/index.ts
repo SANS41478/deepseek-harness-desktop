@@ -10,14 +10,27 @@
  *   over the `dsh://` protocol and drives the same RPC surface through the
  *   preload bridge (`dshApi`) instead of HTTP/WebSocket.
  *
+ * Window UI: the close button hides the window to the tray (the harness keeps
+ * running), the application menu provides the standard roles and shortcuts,
+ * and the tray offers Show/Quit. Quit (menu, tray, or Cmd+Q) exits for real.
+ *
  * @module @deepseek-ai/dsh-desktop/main
  */
 
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { startHost, type DesktopHost } from './startHost.ts'
 import { installIpcBridge } from './ipc-bridge.ts'
 import { registerDshProtocol, registerDshScheme } from './protocol.ts'
+import { installApplicationMenu } from './menu.ts'
+import { installTray } from './tray.ts'
+import { installUpdater } from './updater.ts'
+
+// electron-updater is a CommonJS module whose named exports come through a
+// star re-export, so Electron's ESM loader cannot detect `autoUpdater`;
+// createRequire is the repo's CJS interop pattern (web-app, client-modules).
+const { autoUpdater } = createRequire(import.meta.url)('electron-updater') as typeof import('electron-updater')
 
 /** The desktop transport: 'loopback' (stock browser client) or 'ipc' (IPC carrier). */
 type DesktopTransport = 'loopback' | 'ipc'
@@ -39,13 +52,30 @@ if (!gotLock) {
 } else {
   let host: DesktopHost | undefined
   let mainWindow: BrowserWindow | undefined
+  let disposeTray: (() => void) | undefined
   let disposed = false
+  let quitting = false
+
+  /** Show and focus the main window, recreating it if the last one closed. */
+  function showWindow(): void {
+    if (mainWindow === undefined) {
+      mainWindow = createWindow()
+      const url = TRANSPORT === 'ipc' ? 'dsh://app/' : host?.webUrl
+      if (url !== undefined) void mainWindow.loadURL(url)
+      return
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
 
   /** Dispose the harness tree exactly once, then quit the app. */
   async function shutdown(): Promise<void> {
     if (disposed) return
     disposed = true
+    quitting = true
     try {
+      disposeTray?.()
       await host?.dispose()
     } finally {
       app.quit()
@@ -67,6 +97,14 @@ if (!gotLock) {
       },
     })
     win.once('ready-to-show', () => { win.show() })
+    // The close button hides to the tray (the harness keeps running); Quit
+    // (menu/tray/Cmd+Q) sets `quitting` and exits for real.
+    win.on('close', (event) => {
+      if (!quitting) {
+        event.preventDefault()
+        win.hide()
+      }
+    })
     // No child windows: external links leave the app.
     win.webContents.setWindowOpenHandler(({ url }) => {
       void shell.openExternal(url)
@@ -85,15 +123,34 @@ if (!gotLock) {
   }
 
   app.on('second-instance', () => {
-    if (mainWindow !== undefined) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
+    showWindow()
   })
 
   void app.whenReady().then(async () => {
     mainWindow = createWindow()
     const webContents = mainWindow.webContents
+
+    const updater = installUpdater(autoUpdater, app.isPackaged)
+    installApplicationMenu({
+      showWindow,
+      quit: () => { void shutdown() },
+      checkForUpdates: () => updater.checkForUpdates(),
+      notify: (text) => {
+        if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
+          void dialog.showMessageBox(mainWindow, { message: text })
+        } else {
+          console.log(`dsh-desktop: ${text}`)
+        }
+      },
+    })
+    disposeTray = installTray({ showWindow, quit: () => { void shutdown() } })
+    // One background update check per launch; the menu entry checks on demand.
+    if (app.isPackaged) {
+      updater.checkForUpdates().catch((error: unknown) => {
+        console.error('dsh-desktop: update check failed:', error)
+      })
+    }
+
     try {
       // The desktop owns no command line: the web-startup provider parses
       // --port 0 so the in-process server binds an OS-assigned loopback port
@@ -119,11 +176,17 @@ if (!gotLock) {
     console.error('dsh-desktop: unexpected failure:', error)
   })
 
+  app.on('activate', () => {
+    // macOS dock click brings the window back.
+    showWindow()
+  })
+
   app.on('window-all-closed', () => {
     void shutdown()
   })
 
   app.on('before-quit', () => {
+    quitting = true
     void shutdown()
   })
 }
