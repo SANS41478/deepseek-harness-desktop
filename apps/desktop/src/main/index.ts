@@ -17,17 +17,19 @@
  * @module @deepseek-ai/dsh-desktop/main
  */
 
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { startHost, type DesktopHost } from './startHost.ts'
 import { installIpcBridge } from './ipc-bridge.ts'
 import { registerDshProtocol, registerDshScheme } from './protocol.ts'
-import { installApplicationMenu } from './menu.ts'
+import { installApplicationMenu, buildHamburgerMenu, type ApplicationMenuOptions } from './menu.ts'
 import { installTray } from './tray.ts'
 import { installUpdater } from './updater.ts'
 import { installTitleBar } from './title-bar.ts'
 import { installDesktopAdapt } from './desktop-adapt.ts'
+import { installShellTheme, resolveShellTheme, type ShellTheme } from './shell-theme.ts'
+import type { TrayController } from './tray.ts'
 
 // electron-updater is a CommonJS module whose named exports come through a
 // star re-export, so Electron's ESM loader cannot detect `autoUpdater`;
@@ -54,7 +56,7 @@ if (!gotLock) {
 } else {
   let host: DesktopHost | undefined
   let mainWindow: BrowserWindow | undefined
-  let disposeTray: (() => void) | undefined
+  let tray: TrayController | undefined
   let disposed = false
   let quitting = false
 
@@ -77,7 +79,7 @@ if (!gotLock) {
     disposed = true
     quitting = true
     try {
-      disposeTray?.()
+      tray?.dispose()
       await host?.dispose()
     } finally {
       app.quit()
@@ -89,9 +91,9 @@ if (!gotLock) {
       width: 1280,
       height: 860,
       show: false,
-      // Hide the application menu bar (File/Edit/View/...) so the window looks
-      // like a normal desktop app; Alt reveals it temporarily, and the menu
-      // accelerators (Ctrl+R, Ctrl+Shift+I, zoom, ...) keep working regardless.
+      // The OS menu bar stays hidden; the in-window title bar's hamburger
+      // opens the app menu as a popup (Alt still reveals the bar for the
+      // role accelerators — reload, devtools, zoom).
       autoHideMenuBar: true,
       // In-window title bar: the system bar is hidden and the shell injects
       // its own draggable bar (title-bar.ts). Windows keeps the native window
@@ -151,7 +153,8 @@ if (!gotLock) {
     installDesktopAdapt(mainWindow)
 
     const updater = installUpdater(autoUpdater, app.isPackaged)
-    installApplicationMenu({
+    let shellTheme = resolveShellTheme()
+    const menuOptions = (theme: ShellTheme): ApplicationMenuOptions => ({
       showWindow,
       quit: () => { void shutdown() },
       checkForUpdates: () => updater.checkForUpdates(),
@@ -162,8 +165,27 @@ if (!gotLock) {
           console.log(`dsh-desktop: ${text}`)
         }
       },
+      shellTheme: theme,
+      setShellTheme: (next) => { shellThemeController.setTheme(next) },
     })
-    disposeTray = installTray({ showWindow, quit: () => { void shutdown() } })
+    const rebuildMenu = (theme: ShellTheme): void => {
+      installApplicationMenu(menuOptions(theme))
+    }
+    const theTray = installTray({ showWindow, quit: () => { void shutdown() } })
+    tray = theTray
+    const shellThemeController = installShellTheme(mainWindow, shellTheme, (theme) => {
+      shellTheme = theme
+      rebuildMenu(theme)
+      theTray.setTheme(theme)
+    })
+    rebuildMenu(shellTheme)
+    // The in-window title bar's hamburger opens the app menu as a native
+    // popup; rebuilt on each open so the Shell Theme radios reflect the
+    // current theme.
+    ipcMain.on('dsh:shell-menu:open', () => {
+      if (mainWindow === undefined) return
+      buildHamburgerMenu(menuOptions(shellTheme)).popup({ window: mainWindow, x: 12, y: 40 })
+    })
     // One background update check per launch; the menu entry checks on demand.
     if (app.isPackaged) {
       updater.checkForUpdates().catch((error: unknown) => {

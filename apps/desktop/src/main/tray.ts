@@ -9,6 +9,7 @@
 
 import { Menu, Tray, nativeImage } from 'electron'
 import { fileURLToPath } from 'node:url'
+import type { ShellTheme } from './shell-theme.ts'
 
 /** The tray's app-level callbacks (wired by the main entry). */
 export interface TrayOptions {
@@ -18,14 +19,26 @@ export interface TrayOptions {
   quit(): void
 }
 
+/** The tray controller the main entry keeps for theme swaps and teardown. */
+export interface TrayController {
+  /** Switch the tray glyph to the theme's brand colour. */
+  setTheme(theme: ShellTheme): void
+  /** Destroy the tray. */
+  dispose(): void
+}
+
 /**
- * Install the tray icon. Tray must run after the app is ready.
+ * Install the tray icon. Tray must run after the app is ready. The glyph
+ * follows the active shell theme (brand blue by default, terra-cotta for the
+ * Claude shell theme).
  * @param options - the app-level callbacks the tray menu invokes.
- * @returns the disposer that destroys the tray.
+ * @returns the tray controller.
  */
-export function installTray(options: TrayOptions): () => void {
-  const icon = nativeImage.createFromPath(fileURLToPath(new URL('../../build/tray.png', import.meta.url)))
-  const tray = new Tray(icon)
+export function installTray(options: TrayOptions): TrayController {
+  const iconPath = (theme: ShellTheme): string => fileURLToPath(
+    new URL(`../../build/${theme === 'claude' ? 'tray-claude' : 'tray'}.png`, import.meta.url),
+  )
+  const tray = new Tray(nativeImage.createFromPath(iconPath('deepseek')))
   tray.setToolTip('DeepSeek Harness')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show DeepSeek Harness', click: () => { options.showWindow() } },
@@ -33,5 +46,11 @@ export function installTray(options: TrayOptions): () => void {
     { label: 'Quit', click: () => { options.quit() } },
   ]))
   tray.on('click', () => { options.showWindow() })
-  return () => { tray.destroy() }
+  return {
+    setTheme: (theme: ShellTheme) => {
+      if (theme === 'claude') tray.setImage(nativeImage.createFromPath(iconPath('claude')))
+      else tray.setImage(nativeImage.createFromPath(iconPath('deepseek')))
+    },
+    dispose: () => { tray.destroy() },
+  }
 }

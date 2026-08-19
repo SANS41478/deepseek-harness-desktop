@@ -11,6 +11,7 @@ const electronModule = vi.hoisted(() => {
   class Tray {
     setToolTip = vi.fn()
     setContextMenu = vi.fn()
+    setImage = vi.fn()
     on = vi.fn()
     destroy = vi.fn()
     constructor() {
@@ -35,7 +36,7 @@ function latestTray() {
 describe('installTray', () => {
   it('creates the tray with the app tooltip and a Show/Quit menu', () => {
     const options = { showWindow: vi.fn(), quit: vi.fn() }
-    const dispose = installTray(options)
+    const controller = installTray(options)
     expect(electronModule.nativeImage.createFromPath).toHaveBeenCalled()
     const tray = latestTray()
     expect(tray.setToolTip).toHaveBeenCalledWith('DeepSeek Harness')
@@ -43,8 +44,22 @@ describe('installTray', () => {
     const labels = template.map(item => item.label).filter(Boolean)
     expect(labels).toEqual(['Show DeepSeek Harness', 'Quit'])
     expect(tray.setContextMenu).toHaveBeenCalledWith(template)
-    dispose()
+    controller.dispose()
     expect(tray.destroy).toHaveBeenCalled()
+  })
+
+  it('swaps the glyph to the Claude terra-cotta variant and back on setTheme', () => {
+    const options = { showWindow: vi.fn(), quit: vi.fn() }
+    const controller = installTray(options)
+    const before = electronModule.nativeImage.createFromPath.mock.calls.length
+    controller.setTheme('claude')
+    controller.setTheme('deepseek')
+    const calls = electronModule.nativeImage.createFromPath.mock.calls.slice(before)
+    const paths = calls.map(call => String(call[0]))
+    expect(paths.some(p => p.endsWith('tray-claude.png'))).toBe(true)
+    expect(paths.some(p => p.endsWith('tray.png'))).toBe(true)
+    const tray = latestTray()
+    expect(tray.setImage).toHaveBeenCalledTimes(2)
   })
 
   it('wires the menu items to the app callbacks and brings the window back on click', () => {

@@ -45,6 +45,27 @@ const TITLE_BAR_CSS = `
 #dsh-title-bar .dsh-title-bar-spacer {
   flex: 1;
 }
+#dsh-hamburger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+#dsh-hamburger:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, 0.06));
+}
 /* Interactive descendants (none today) must stay clickable. */
 #dsh-title-bar button,
 #dsh-title-bar a {
@@ -53,6 +74,7 @@ const TITLE_BAR_CSS = `
 `
 
 const TITLE_BAR_HTML = `<div id="dsh-title-bar">
+  <button id="dsh-hamburger" type="button" aria-label="Menu">☰</button>
   <span class="dsh-title-bar-title">DeepSeek Harness</span>
   <span class="dsh-title-bar-app">dsh desktop</span>
   <span class="dsh-title-bar-spacer"></span>
@@ -92,6 +114,9 @@ export function installTitleBar(win: BrowserWindow): void {
         const host = document.createElement('div')
         host.innerHTML = ${JSON.stringify(TITLE_BAR_HTML)}
         document.body.appendChild(host.firstElementChild)
+        document.getElementById('dsh-hamburger')?.addEventListener('click', () => {
+          window.dshShellMenu?.open()
+        })
       })()
     `, true)
   })

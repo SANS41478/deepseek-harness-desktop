@@ -42,6 +42,7 @@ IPC 传输笔记（[electron-ipc-transport-seam](2026-08-16-electron-ipc-transpo
 - 菜单 role `helpMenu` 不在本 Electron 版本的 role 联合类型中；Help 菜单改用普通 label。
 - **桌面组合补全 CLI 对齐**：`startHost` 现在在 boot 时应用组合出的 overlays（对齐 CLI 的 `allPatches`——此前只有 HMR 的 `composeLive` 层携带它们），并在 `agent-presets` 行上叠加 `roots: [{ path: apps/desktop/config/agent-presets, trust: 'system' }]`，使 desktop 随包携带与 CLI 相同的 `standard`/`code`/`minimal`/`cordis` preset roster。此前 desktop 挂载该行但 roster 为空，建会话报 `agent-preset-not-found (available: none)`。
 - **`desktop-adapt.ts` 是仅 Electron 的外壳层**（同 `title-bar.ts`），去除 web 痕迹：`html, body { overflow: hidden; height: 100% }` 让 desktop 成为固定应用框——任何视图都不会出现整页滚动条，只有内部面板（会话记录的 `[data-conversation-scroll]` 滚动器）滚动；并把前端 8px 滚动条细化为 6px 半透明 thumb，同步 `--dsh-scrollbar-width` 对齐令牌。与标题栏一样按次加载注入，共享 web 前端不被改动。
+- **`shell-theme.ts` 新增可切换的外壳主题**，只重排注入的桌面壳（标题栏、滚动条、托盘），绝不动共享 web 前端。`deepseek`（默认）跟随页面的 `--dsw-*` 令牌；`claude` 是温暖、编辑感、陶土色处理（Newsreader 字标、Poppins 标签、Geist Mono 注解、纸感表面、陶土色滚动条 thumb）。Claude CSS 以 `html[data-shell-theme='claude']` 为作用域，切换只需拨动该属性；`shell-fonts.css.ts` 把四个字体族以 base64 data URI 内嵌（由 `scripts/gen-shell-fonts.mjs` 从 `@fontsource/*` 生成，无 CDN，两种传输皆可用）。经 `DSH_DESKTOP_SHELL_THEME=claude` 或在窗口内标题栏的汉堡（☰）菜单选择——OS 菜单栏已隐藏，汉堡以原生 popup 弹出应用菜单（Show Window、Shell Theme、Check for Updates、Quit）——也会把托盘图标换成 `build/tray-claude.png`。
 
 ## Testing
 

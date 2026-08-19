@@ -38,3 +38,9 @@ const bridge: DshApiBridge = {
 
 contextBridge.exposeInMainWorld('dshApi', bridge)
 contextBridge.exposeInMainWorld('__DSH_TRANSPORT__', process.env.DSH_DESKTOP_TRANSPORT === 'ipc' ? 'ipc' : 'loopback')
+// Shell-chrome bridge: the injected in-window title bar's hamburger opens the
+// application menu as a native popup in the main process. Minimal, one
+// direction, no data crosses the boundary.
+contextBridge.exposeInMainWorld('dshShellMenu', {
+  open: () => { ipcRenderer.send('dsh:shell-menu:open') },
+})

@@ -1,8 +1,10 @@
-// Generate the desktop app icons: a brand-blue rounded square with a white
-// inset "window" glyph, emitted as PNGs electron-builder and the tray use.
-// Pure Node (zlib + a hand-rolled PNG encoder) so no image dependency enters
-// the repo. The main 512px icon is the electron-builder buildResources icon
-// (auto-converted to .ico/.icns per target); tray.png is the small tray glyph.
+// Generate the desktop app icons: a rounded square with a white inset
+// "window" glyph, emitted as PNGs electron-builder and the tray use. Pure Node
+// (zlib + a hand-rolled PNG encoder) so no image dependency enters the repo.
+// The main 512px icon is the electron-builder buildResources icon
+// (auto-converted to .ico/.icns per target); tray.png is the small tray glyph
+// in the brand blue, and tray-claude.png is the same glyph in the Claude
+// terra-cotta shell theme.
 import { deflateSync } from 'node:zlib'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -11,8 +13,10 @@ import { join } from 'node:path'
 const outDir = fileURLToPath(new URL('../build', import.meta.url))
 mkdirSync(outDir, { recursive: true })
 
-// DeepSeek brand blue; the white glyph is the "window" the shell draws.
+// DeepSeek brand blue (default) and Claude terra-cotta; the white glyph is the
+// "window" the shell draws.
 const BLUE = [0x4d, 0x6b, 0xfe]
+const CLAUDE = [0xc9, 0x64, 0x42]
 const WHITE = [0xff, 0xff, 0xff]
 
 function crc32(buf) {
@@ -67,7 +71,7 @@ function roundedSquareCoverage(x, y, size, radius) {
   return 1
 }
 
-function drawIcon(size) {
+function drawIcon(size, color) {
   const rgba = Buffer.alloc(size * size * 4)
   const half = size / 2
   const glyphHalf = size * 0.23
@@ -86,17 +90,19 @@ function drawIcon(size) {
       const white = outer * glyph
       const idx = (y * size + x) * 4
       const denom = blue + white || 1
-      rgba[idx] = Math.round((BLUE[0] * blue + WHITE[0] * white) / denom)
-      rgba[idx + 1] = Math.round((BLUE[1] * blue + WHITE[1] * white) / denom)
-      rgba[idx + 2] = Math.round((BLUE[2] * blue + WHITE[2] * white) / denom)
+      rgba[idx] = Math.round((color[0] * blue + WHITE[0] * white) / denom)
+      rgba[idx + 1] = Math.round((color[1] * blue + WHITE[1] * white) / denom)
+      rgba[idx + 2] = Math.round((color[2] * blue + WHITE[2] * white) / denom)
       rgba[idx + 3] = Math.round(outer * 255)
     }
   }
   return rgba
 }
 
-const icon512 = encodePng(512, 512, drawIcon(512))
+const icon512 = encodePng(512, 512, drawIcon(512, BLUE))
 writeFileSync(join(outDir, 'icon.png'), icon512)
-const tray32 = encodePng(32, 32, drawIcon(32))
+const tray32 = encodePng(32, 32, drawIcon(32, BLUE))
 writeFileSync(join(outDir, 'tray.png'), tray32)
-console.log('gen-icons: wrote build/icon.png (512) and build/tray.png (32)')
+const trayClaude32 = encodePng(32, 32, drawIcon(32, CLAUDE))
+writeFileSync(join(outDir, 'tray-claude.png'), trayClaude32)
+console.log('gen-icons: wrote build/icon.png (512), build/tray.png (32), build/tray-claude.png (32)')

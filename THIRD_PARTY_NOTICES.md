@@ -121,6 +121,10 @@ External packages **directly declared** only by repository tooling, test infrast
 | Package | License |
 | --- | --- |
 | [`@braintree/sanitize-url`](https://github.com/braintree/sanitize-url) | MIT |
+| [`@fontsource/geist-mono`](https://github.com/fontsource/font-files) | OFL-1.1 |
+| [`@fontsource/lora`](https://github.com/fontsource/font-files) | OFL-1.1 |
+| [`@fontsource/newsreader`](https://github.com/fontsource/font-files) | OFL-1.1 |
+| [`@fontsource/poppins`](https://github.com/fontsource/font-files) | OFL-1.1 |
 | [`@modelcontextprotocol/server-everything`](https://github.com/modelcontextprotocol/servers) | MIT / Apache-2.0 |
 | [`@modelcontextprotocol/server-filesystem`](https://github.com/modelcontextprotocol/servers) | MIT / Apache-2.0 |
 | [`@openai/codex`](https://github.com/openai/codex) | Apache-2.0 |
@@ -171,7 +175,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`vitepress-plugin-mermaid`](https://github.com/emersonbottero/vitepress-plugin-mermaid) | MIT |
 | [`vitest`](https://github.com/vitest-dev/vitest) | MIT |
 
-`eslint-plugin-sonarjs` (LGPL-3.0-only) and `lightningcss` (MPL-2.0) run only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.
+`@fontsource/geist-mono` (OFL-1.1), `@fontsource/lora` (OFL-1.1), `@fontsource/newsreader` (OFL-1.1), `@fontsource/poppins` (OFL-1.1), `eslint-plugin-sonarjs` (LGPL-3.0-only) and `lightningcss` (MPL-2.0) run only as development tooling; their code is not linked into or distributed with any DeepSeek Harness artifact.
 
 ## Python SDK dependencies (`python/`)
 

@@ -7,6 +7,7 @@
  */
 
 import { Menu, type MenuItemConstructorOptions } from 'electron'
+import type { ShellTheme } from './shell-theme.ts'
 
 /** The menu's app-level callbacks (wired by the main entry). */
 export interface ApplicationMenuOptions {
@@ -18,6 +19,10 @@ export interface ApplicationMenuOptions {
   checkForUpdates(): Promise<string>
   /** Surface a status line to the user (dialog, log, ...). */
   notify(text: string): void
+  /** The active shell theme (drives the radio checked state). */
+  shellTheme: ShellTheme
+  /** Switch the desktop shell theme live. */
+  setShellTheme(theme: ShellTheme): void
 }
 
 /**
@@ -50,6 +55,24 @@ export function installApplicationMenu(options: ApplicationMenuOptions): void {
       { role: 'zoomIn' },
       { role: 'zoomOut' },
       { type: 'separator' },
+      {
+        label: 'Shell Theme',
+        submenu: [
+          {
+            label: 'DeepSeek',
+            type: 'radio',
+            checked: options.shellTheme === 'deepseek',
+            click: () => { options.setShellTheme('deepseek') },
+          },
+          {
+            label: 'Claude',
+            type: 'radio',
+            checked: options.shellTheme === 'claude',
+            click: () => { options.setShellTheme('claude') },
+          },
+        ],
+      },
+      { type: 'separator' },
       { role: 'togglefullscreen' },
     ],
   }
@@ -78,4 +101,48 @@ export function installApplicationMenu(options: ApplicationMenuOptions): void {
     helpMenu,
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/**
+ * Build the hamburger popup menu the in-window title bar opens (the opencode-
+ * style "three-bar" dropdown). A curated, flat-ish list of the app's actions —
+ * Show Window, Shell Theme, Check for Updates, Quit — rather than the full
+ * File/Edit/View/Window/Help hierarchy of the (auto-hidden) application menu.
+ * @param options - the app-level callbacks and current theme.
+ * @returns the popup menu.
+ */
+export function buildHamburgerMenu(options: ApplicationMenuOptions): Menu {
+  return Menu.buildFromTemplate([
+    { label: 'Show Window', click: () => { options.showWindow() } },
+    {
+      label: 'Shell Theme',
+      submenu: [
+        {
+          label: 'DeepSeek',
+          type: 'radio',
+          checked: options.shellTheme === 'deepseek',
+          click: () => { options.setShellTheme('deepseek') },
+        },
+        {
+          label: 'Claude',
+          type: 'radio',
+          checked: options.shellTheme === 'claude',
+          click: () => { options.setShellTheme('claude') },
+        },
+      ],
+    },
+    { type: 'separator' },
+    {
+      label: 'Check for Updates…',
+      click: () => {
+        options.checkForUpdates()
+          .then((text) => { options.notify(text) })
+          .catch((error: unknown) => {
+            options.notify(`update check failed: ${error instanceof Error ? error.message : String(error)}`)
+          })
+      },
+    },
+    { type: 'separator' },
+    { label: 'Quit', accelerator: 'Alt+F4', click: () => { options.quit() } },
+  ])
 }

@@ -4,7 +4,7 @@
  * surfaces the update status through the notify callback.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { installApplicationMenu } from '../src/main/menu.ts'
+import { buildHamburgerMenu, installApplicationMenu } from '../src/main/menu.ts'
 import type { MenuItemConstructorOptions } from 'electron'
 
 const electronModule = vi.hoisted(() => ({
@@ -35,6 +35,8 @@ function mount() {
     quit: vi.fn(),
     checkForUpdates: vi.fn(),
     notify: vi.fn(),
+    shellTheme: 'deepseek' as const,
+    setShellTheme: vi.fn(),
   }
   installApplicationMenu(options)
   const template = electronModule.Menu.buildFromTemplate.mock.calls.at(-1)![0]
@@ -77,5 +79,44 @@ describe('installApplicationMenu', () => {
     const check = findItem(template, 'Check for Updates…')!
     check.click?.({}, {} as never, {})
     await vi.waitFor(() => { expect(options.notify).toHaveBeenCalledWith('update check failed: channel down') })
+  })
+
+  it('wires the Shell Theme radios to the setter with the current theme checked', () => {
+    const { options, template } = mount()
+    const deepseek = findItem(template, 'DeepSeek')!
+    const claude = findItem(template, 'Claude')!
+    expect(deepseek.type).toBe('radio')
+    expect(deepseek.checked).toBe(true)
+    expect(claude.type).toBe('radio')
+    expect(claude.checked).toBe(false)
+    deepseek.click?.({}, {} as never, {})
+    expect(options.setShellTheme).toHaveBeenCalledWith('deepseek')
+    claude.click?.({}, {} as never, {})
+    expect(options.setShellTheme).toHaveBeenCalledWith('claude')
+  })
+
+  it('builds the hamburger popup with the app actions and the current theme checked', () => {
+    const options = {
+      showWindow: vi.fn(),
+      quit: vi.fn(),
+      checkForUpdates: vi.fn(),
+      notify: vi.fn(),
+      shellTheme: 'claude' as const,
+      setShellTheme: vi.fn(),
+    }
+    const menu = buildHamburgerMenu(options)
+    // buildHamburgerMenu calls Menu.buildFromTemplate; inspect its latest call.
+    const template = electronModule.Menu.buildFromTemplate.mock.calls.at(-1)![0]
+    const labels = template.map(item => item.label).filter(Boolean)
+    expect(labels).toEqual(['Show Window', 'Shell Theme', 'Check for Updates…', 'Quit'])
+    const show = findItem(template, 'Show Window')!
+    show.click?.({}, {} as never, {})
+    expect(options.showWindow).toHaveBeenCalledTimes(1)
+    const claude = findItem(template, 'Claude')!
+    expect(claude.checked).toBe(true)
+    const deepseek = findItem(template, 'DeepSeek')!
+    deepseek.click?.({}, {} as never, {})
+    expect(options.setShellTheme).toHaveBeenCalledWith('deepseek')
+    expect(menu).toBeDefined()
   })
 })
