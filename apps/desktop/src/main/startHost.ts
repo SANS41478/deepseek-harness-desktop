@@ -39,6 +39,15 @@ const NAME = 'dsh-desktop'
 /** Absolute path of this app's package.json (src/main/ and lib/main/ both sit two levels under apps/desktop). */
 const INSTALL_ANCHOR = fileURLToPath(new URL('../../package.json', import.meta.url))
 
+/**
+ * Shipped agent-preset roster, beside this app's own config in both the source
+ * and built layouts (src/main/ and lib/main/ both sit two levels under
+ * apps/desktop). The writable root the roster appends is `dsh-agent-presets`'
+ * own, so a launcher that never reaches this patch still finds a person's
+ * presets.
+ */
+const SHIPPED_PRESET_ROOT = fileURLToPath(new URL('../../config/agent-presets/', import.meta.url))
+
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets (mirror of apps/cli). */
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'
 
@@ -132,7 +141,12 @@ export async function startHost(options: StartHostOptions = {}): Promise<Desktop
         ],
       },
     ]
-  const patches = [...composed.patches, ...webServerPatch]
+  // The boot applies the full stack — bundle, user, home layers, then the
+  // overlays (shipped agent-presets roster, telemetry switch) and the
+  // transport patch — in application order, mirroring the CLI's `allPatches`.
+  // The separate `overlays` value is the HMR composeLive layer and keeps the
+  // transport patch so a live reload preserves the transport.
+  const patches = [...composed.patches, ...composed.overlays, ...webServerPatch]
   const overlays = [...composed.overlays, ...webServerPatch]
   const ctx = await boot(NAME, join(profile.dir, PROFILE_ROOT_FILENAME), structuredClone(patches), (hostCtx) => {
     app.current = hostCtx
@@ -219,6 +233,17 @@ function composeProfile(profile: Profile): ComposedProfile {
     if (typeof row.id === 'string') rows.set(row.id, row)
   }
   const overlays: PatchOptions[] = []
+  // The shipped roster is the part of the preset set only this app can resolve:
+  // it sits beside this app's own config (mirror of apps/cli's profile-boot).
+  if (rows.has('agent-presets')) {
+    overlays.push({
+      id: 'agent-presets',
+      config: {
+        ...(rows.get('agent-presets') as { config?: Record<string, unknown> } | undefined)?.config ?? {},
+        roots: [{ path: SHIPPED_PRESET_ROOT, trust: 'system' }],
+      },
+    })
+  }
   // Privacy switch: ANY non-empty value disables; a composition without the
   // row needs no patch (mirror of apps/cli).
   if ((process.env.DSH_TELEMETRY_DISABLED ?? '') !== '' && rows.has(TELEMETRY_ROW_ID)) {

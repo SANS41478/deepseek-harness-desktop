@@ -40,6 +40,8 @@ IPC 传输笔记（[electron-ipc-transport-seam](2026-08-16-electron-ipc-transpo
 - 壳只保留载体胶水，并新增仅 Electron 模块（menu/tray/updater），以 mock 的 `electron` 模块做单测；desktop 应用在逐文件覆盖门禁之外。
 - 打包：NSIS/dmg 目标、图标、`electron-updater` 已接线；本地 `package:win` 按设计不签名，自动更新只在打包构建激活（dev 为 no-op 字符串，无 key 开发无需 dist 服务器）。
 - 菜单 role `helpMenu` 不在本 Electron 版本的 role 联合类型中；Help 菜单改用普通 label。
+- **桌面组合补全 CLI 对齐**：`startHost` 现在在 boot 时应用组合出的 overlays（对齐 CLI 的 `allPatches`——此前只有 HMR 的 `composeLive` 层携带它们），并在 `agent-presets` 行上叠加 `roots: [{ path: apps/desktop/config/agent-presets, trust: 'system' }]`，使 desktop 随包携带与 CLI 相同的 `standard`/`code`/`minimal`/`cordis` preset roster。此前 desktop 挂载该行但 roster 为空，建会话报 `agent-preset-not-found (available: none)`。
+- **`desktop-adapt.ts` 是仅 Electron 的外壳层**（同 `title-bar.ts`），去除 web 痕迹：`html, body { overflow: hidden; height: 100% }` 让 desktop 成为固定应用框——任何视图都不会出现整页滚动条，只有内部面板（会话记录的 `[data-conversation-scroll]` 滚动器）滚动；并把前端 8px 滚动条细化为 6px 半透明 thumb，同步 `--dsh-scrollbar-width` 对齐令牌。与标题栏一样按次加载注入，共享 web 前端不被改动。
 
 ## Testing
 

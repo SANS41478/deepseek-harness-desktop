@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-electron-ipc-abort-and-chunked-api-routing.md
-2026-08-18-electron-ipc-abort-and-chunked-api-routing.md: 435a3e170f37dbdf1efb03f26fe7c81ef31716e5
-2026-08-18-electron-ipc-abort-and-chunked-api-routing.zh.md: bfd48c5c4dc047251437296c1b651f08fb3a04f1
+2026-08-18-electron-ipc-abort-and-chunked-api-routing.md: f197527bc37b77eb6ce97804cdc2ba1861984b95
+2026-08-18-electron-ipc-abort-and-chunked-api-routing.zh.md: 9a574dd93ab5b3f834c48a7ddf21428f854140e7

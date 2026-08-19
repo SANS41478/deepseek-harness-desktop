@@ -27,6 +27,7 @@ import { installApplicationMenu } from './menu.ts'
 import { installTray } from './tray.ts'
 import { installUpdater } from './updater.ts'
 import { installTitleBar } from './title-bar.ts'
+import { installDesktopAdapt } from './desktop-adapt.ts'
 
 // electron-updater is a CommonJS module whose named exports come through a
 // star re-export, so Electron's ESM loader cannot detect `autoUpdater`;
@@ -147,6 +148,7 @@ if (!gotLock) {
     mainWindow = createWindow()
     const webContents = mainWindow.webContents
     installTitleBar(mainWindow)
+    installDesktopAdapt(mainWindow)
 
     const updater = installUpdater(autoUpdater, app.isPackaged)
     installApplicationMenu({

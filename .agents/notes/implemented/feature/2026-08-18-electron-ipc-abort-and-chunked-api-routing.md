@@ -40,6 +40,8 @@ Closing to the tray and a menu/tray were listed follow-ups, but the tray is the 
 - The shell keeps only carrier glue and adds Electron-only modules (menu/tray/updater) that are unit-tested with a mocked `electron` module; the desktop app is outside the per-file coverage gate.
 - Packaging: NSIS/dmg targets, icons, and `electron-updater` are wired; local `package:win` is unsigned by design, and auto-update activates only in packaged builds (dev is a no-op string, so keyless development needs no dist server).
 - Menu role `helpMenu` is not in this Electron version's role union; the Help menu uses a plain label instead.
+- **Desktop composition completes the CLI parity**: `startHost` now applies the composed overlays at boot (mirroring the CLI's `allPatches` — previously only the HMR `composeLive` layer carried them), and overlays a `roots: [{ path: apps/desktop/config/agent-presets, trust: 'system' }]` on the `agent-presets` row so the desktop ships the same `standard`/`code`/`minimal`/`cordis` preset roster the CLI ships. Without it the desktop mounted the row with an empty roster and session creation failed with `agent-preset-not-found (available: none)`.
+- **`desktop-adapt.ts` is an Electron-only chrome layer** (like `title-bar.ts`) that removes web traces: `html, body { overflow: hidden; height: 100% }` makes the desktop a fixed application frame — no whole-page scrollbar in any view, only inner panels (the conversation transcript's `[data-conversation-scroll]` scroller) scroll — plus slims the frontend's 8px scrollbar to a 6px semi-transparent thumb and keeps the `--dsh-scrollbar-width` alignment token in step. It injects per-load like the title bar, so the shared web frontend is untouched.
 
 ## Testing
 
