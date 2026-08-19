@@ -1,10 +1,12 @@
-# DeepSeek Harness
+# DeepSeek Harness（桌面端 Fork）
 
 [English](README.md) | 中文
 
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 
 它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
+
+> **带桌面端的 fork。** 本仓库是 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 的 fork，新增了一个 [Electron](https://www.electronjs.org/) 桌面壳 `apps/desktop/`——它在 Electron 主进程内启动同一套 `web` 组合，并把现有 `dsh-web-frontend` UI 渲染进窗口。其余部分（插件 harness、`packages/`、文档）均为上游。详见 [apps/desktop/README.md](apps/desktop/README.md)。
 
 ## 开发者预览
 
@@ -22,13 +24,27 @@ npx @deepseek-ai/dsh web
 
 该命令会启动 Web UI，默认地址为 `http://127.0.0.1:3080`。详见 [Web UI 指南](docs/user/guide/index.md)。
 
-### 从源码运行
+### 运行桌面端
 
-如需从仓库源码运行：
+本 fork 在 Web 组合之上新增了一个 Electron 桌面壳：
 
 ```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/SANS41478/deepseek-harness-desktop.git
+cd deepseek-harness-desktop
+pnpm install
+pnpm --filter @deepseek-ai/dsh-desktop dev        # loopback transport (default)
+DSH_DESKTOP_TRANSPORT=ipc pnpm --filter @deepseek-ai/dsh-desktop dev   # IPC transport
+```
+
+两种模式都需要 `DEEPSEEK_API_KEY`（或在 `$DSH_HOME/settings.yaml` 中配置你选择的模型）。详见 [apps/desktop/README.md](apps/desktop/README.md)。
+
+### 从源码运行
+
+从仓库源码运行 Web UI：
+
+```sh
+git clone https://github.com/SANS41478/deepseek-harness-desktop.git
+cd deepseek-harness-desktop
 pnpm install
 pnpm run build
 pnpm dsh web

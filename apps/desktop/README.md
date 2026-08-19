@@ -1,5 +1,7 @@
 # `@deepseek-ai/dsh-desktop`
 
+English | [中文](README.zh.md)
+
 > **Snapshot** — this repository holds the `apps/desktop` skeleton extracted from the
 > [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) monorepo at commit
 > `47f943859bef60e4160492346772ded9b24f765a`. The app is a workspace member there and
@@ -35,13 +37,25 @@ src/main/ipc-bridge.ts       IPC mode: toFetchHandler(apiProxy) + stream pumps +
 src/main/protocol.ts         IPC mode: dsh:// protocol (dist + manifest + bundles + /api/* routing)
 src/main/directory-picker.ts Electron dialog backend for the directory-picker seam
 src/main/updater.ts          electron-updater wiring (packaged builds only)
-src/main/menu.ts             application menu (edit/view/window roles + Show Window + Check for Updates)
+src/main/menu.ts             application menu (hamburger popup: Show Window, Shell Theme, updates, Quit)
 src/main/tray.ts             tray icon with Show/Quit menu
 src/main/title-bar.ts        in-window draggable title bar (native window controls)
 src/main/desktop-adapt.ts    Electron-only chrome: fixed app frame + slim scrollbars
+src/main/shell-theme.ts      switchable shell theme (deepseek / claude) + injected Claude chrome
+src/main/shell-fonts.css.ts  generated self-hosted Claude fonts (@font-face data URIs)
 src/preload/index.ts         contextBridge: bridge + __DSH_TRANSPORT__ fact
 config/agent-presets/        shipped agent-preset roster (standard/code/minimal/cordis)
+scripts/gen-icons.mjs        icon/tray PNGs (brand blue + claude terra-cotta tray)
+scripts/gen-shell-fonts.mjs  regenerate shell-fonts.css.ts from @fontsource
 ```
+
+### Shell theme
+
+The desktop shell restyles only its injected chrome (title bar, scrollbars, tray) — never the shared web frontend — with a switchable theme:
+- `deepseek` (default) — the title bar and scrollbars follow the page's `--dsw-*` tokens.
+- `claude` — a warm, editorial, terra-cotta treatment: Newsreader wordmark, Poppins labels, Geist Mono annotation, paper surfaces, and a terra-cotta scrollbar thumb, with fonts self-hosted as base64 data URIs (no CDN).
+
+Choose it at launch with `DSH_DESKTOP_SHELL_THEME=claude` (anything else is `deepseek`), or switch live from the in-window title bar's **hamburger (☰) menu → Shell Theme** (which also swaps the tray glyph). The OS menu bar is hidden; the hamburger opens the app menu as a native popup. The Claude CSS is scoped to `html[data-shell-theme='claude']` and injected per load, so the web content is untouched.
 
 The renderer carrier (`ElectronApiClient`, the IPC generic-RPC caller, and the `./wire` cross-process contract) graduated into `@deepseek-ai/dsh-client-connection`; the connection apply selects it from the preload-published transport fact.
 
