@@ -48,8 +48,9 @@
     "typescript": "^6.0.3"
   },
   "build": {
-    "appId": "ai.deepseek.harness",
-    "productName": "DeepSeek Harness",
+    "appId": "io.github.sans41478.deepseek-harness-desktop",
+    "productName": "DeepSeek Harness Desktop",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "lib/**/*"
     ],
@@ -71,7 +72,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "DeepSeek Harness"
+      "shortcutName": "DeepSeek Harness Desktop"
     },
     "mac": {
       "target": [
@@ -83,8 +84,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "deepseek-ai",
-      "repo": "deepseek-harness"
+      "owner": "SANS41478",
+      "repo": "deepseek-harness-desktop"
     }
   },
   "license": "MIT"
