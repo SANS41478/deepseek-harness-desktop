@@ -60,6 +60,7 @@
       "config/**/*"
     ],
     "asar": false,
+    "afterPack": "build/afterPack.js",
     "asarUnpack": [
       "node_modules/node-pty/**/*",
       "node_modules/koffi/**/*"

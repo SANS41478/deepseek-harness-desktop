@@ -13,7 +13,10 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const staging = resolve(process.argv[2] ?? '')
-const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
+// electron-builder runs the hook from the staged copy of this script, whose
+// parent directory chain is the temp dir — not the repository — so the real
+// repo root must be passed explicitly (stage-app sets it in the environment).
+const repoRoot = process.env.DSH_DESKTOP_REPO_ROOT ?? fileURLToPath(new URL('../../..', import.meta.url))
 if (!staging || !existsSync(staging)) {
   throw new Error('close-dependencies: pass the staging directory')
 }

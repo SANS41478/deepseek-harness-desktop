@@ -39,5 +39,5 @@ console.log(`package-app: building ${staging}${win ? ' (win, unsigned)' : ''}`)
 // cwd=staging and no projectDir keeps it self-contained.
 execFileSync('node', [cli, '--publish', 'never', ...(win
   ? ['--config.win.signAndEditExecutable=false']
-  : [])], { cwd: staging, stdio: 'inherit', env: { ...process.env, CI: 'true' } })
+  : [])], { cwd: staging, stdio: 'inherit', env: { ...process.env, CI: 'true', DSH_DESKTOP_REPO_ROOT: repoRoot } })
 console.log('package-app: done')

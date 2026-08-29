@@ -33,6 +33,6 @@ function run(command, args) {
     cwd: repoRoot,
     stdio: 'inherit',
     shell: process.platform === 'win32',
-    env: { ...process.env, CI: 'true' },
+    env: { ...process.env, CI: 'true', DSH_DESKTOP_REPO_ROOT: repoRoot },
   })
 }
