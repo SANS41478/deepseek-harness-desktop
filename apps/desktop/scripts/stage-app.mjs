@@ -20,6 +20,9 @@ const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const staging = mkdtempSync(join(tmpdir(), 'dsh-desktop-staging-'))
 
 run('pnpm.cmd', ['--filter', '@deepseek-ai/dsh-desktop', 'deploy', '--legacy', '--ignore-scripts', staging])
+// deploy prunes peer-only workspace packages; restore them before flattening
+// so junctions inside the copies are flattened too.
+run('node', [join(packageRoot, 'scripts', 'close-dependencies.mjs'), staging])
 run('node', [join(packageRoot, 'scripts', 'flatten-junctions.mjs'), staging])
 run('node', [join(packageRoot, 'scripts', 'rewrite-workspace-ranges.mjs'), staging])
 cpSync(join(packageRoot, 'lib'), join(staging, 'lib'), { recursive: true })

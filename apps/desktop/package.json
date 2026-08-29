@@ -23,7 +23,11 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-group": "workspace:^",
+    "@deepseek-ai/cordis-plugin-hmr": "workspace:^",
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/cordis-plugin-timer": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-base": "workspace:^",
     "@deepseek-ai/dsh-client-connection": "workspace:^",
@@ -52,8 +56,10 @@
     "productName": "DeepSeek Harness Desktop",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
-      "lib/**/*"
+      "lib/**/*",
+      "config/**/*"
     ],
+    "asar": false,
     "asarUnpack": [
       "node_modules/node-pty/**/*",
       "node_modules/koffi/**/*"
