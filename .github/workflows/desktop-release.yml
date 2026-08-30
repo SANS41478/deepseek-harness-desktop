@@ -57,7 +57,9 @@ jobs:
             Where-Object { $_.Name -match '^DeepSeek-Harness-Desktop-.*\.(exe|exe\.blockmap)$' -or $_.Name -eq 'latest.yml' }
           if (-not $files) { throw "desktop release: no artifacts in $release" }
           $files | ForEach-Object { Write-Host "artifact: $($_.Name) ($([math]::Round($_.Length/1MB,1)) MB)" }
-          "paths=$($files.FullName -join [Environment]::NewLine)" >> $env:GITHUB_OUTPUT
+          "paths<<EOF" >> $env:GITHUB_OUTPUT
+          $files.FullName >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Upload workflow artifact (manual runs)
         if: github.event_name == 'workflow_dispatch'
