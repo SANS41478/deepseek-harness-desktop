@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Electron desktop shell over the DeepSeek Harness web composition. Loopback mode reuses the browser transport unchanged; the IPC mode (DSH_DESKTOP_TRANSPORT=ipc) is the documented Electron carrier direction and is scaffolded behind the env switch.",
-  "version": "0.1.0-rc.5",
+  "version": "0.1.0-rc.6",
   "private": true,
   "type": "module",
   "main": "lib/main/index.js",
@@ -54,7 +54,7 @@
   "build": {
     "appId": "io.github.sans41478.deepseek-harness-desktop",
     "productName": "DeepSeek Harness Desktop",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "DeepSeek-Harness-Desktop-${version}-${os}-${arch}.${ext}",
     "files": [
       "lib/**/*",
       "config/**/*"

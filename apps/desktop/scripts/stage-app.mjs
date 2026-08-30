@@ -19,7 +19,9 @@ const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const staging = mkdtempSync(join(tmpdir(), 'dsh-desktop-staging-'))
 
-run('pnpm.cmd', ['--filter', '@deepseek-ai/dsh-desktop', 'deploy', '--legacy', '--ignore-scripts', staging])
+// .cmd only on Windows: pnpm ships a shell shim there, while CI POSIX runners
+// resolve `pnpm` directly.
+run(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop', 'deploy', '--legacy', '--ignore-scripts', staging])
 // deploy prunes peer-only workspace packages; restore them before flattening
 // so junctions inside the copies are flattened too.
 run('node', [join(packageRoot, 'scripts', 'close-dependencies.mjs'), staging])

@@ -1,0 +1,81 @@
+# Build the DeepSeek Harness Desktop Windows installer and publish it as a
+# GitHub release. Triggered by version tags (`v*`) or manually. The packaging
+# pipeline (apps/desktop/scripts) already handles the unsigned Windows CI
+# case (`--config.win.signAndEditExecutable=false`); builds sign automatically
+# once CSC_* secrets exist. The electron-builder output lands in the staging
+# directory's `release/` (see package-app.mjs), so the upload step globs it
+# from RUNNER_TEMP.
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build libraries and web frontend
+        run: pnpm build
+
+      - name: Package the Windows installer
+        run: pnpm --filter @deepseek-ai/dsh-desktop package:win
+
+      - name: Locate release artifacts
+        id: artifacts
+        shell: pwsh
+        run: |
+          $staging = Get-ChildItem $env:RUNNER_TEMP -Directory -Filter 'dsh-desktop-staging-*' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $staging) { throw 'desktop release: no staging directory found' }
+          $release = Join-Path $staging.FullName 'release'
+          $files = Get-ChildItem $release -File |
+            Where-Object { $_.Name -match '^DeepSeek-Harness-Desktop-.*\.(exe|exe\.blockmap)$' -or $_.Name -eq 'latest.yml' }
+          if (-not $files) { throw "desktop release: no artifacts in $release" }
+          $files | ForEach-Object { Write-Host "artifact: $($_.Name) ($([math]::Round($_.Length/1MB,1)) MB)" }
+          "paths=$($files.FullName -join [Environment]::NewLine)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: ${{ steps.artifacts.outputs.paths }}
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_PATHS: ${{ steps.artifacts.outputs.paths }}
+        shell: pwsh
+        run: |
+          $paths = $env:ARTIFACT_PATHS -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+          $tag = $env:GITHUB_REF_NAME
+          $existing = gh release view $tag --json id --jq .id 2>$null
+          if ($existing) {
+            gh release upload $tag @paths --clobber
+          } else {
+            gh release create $tag @paths --title "DeepSeek Harness Desktop $tag" --generate-notes
+          }
