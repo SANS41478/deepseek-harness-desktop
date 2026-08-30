@@ -47,7 +47,9 @@ jobs:
         id: artifacts
         shell: pwsh
         run: |
-          $staging = Get-ChildItem $env:RUNNER_TEMP -Directory -Filter 'dsh-desktop-staging-*' |
+          # os.tmpdir() on Windows runners is the user profile temp, not RUNNER_TEMP.
+          $staging = @($env:RUNNER_TEMP, $env:TEMP) |
+            ForEach-Object { Get-ChildItem $_ -Directory -Filter 'dsh-desktop-staging-*' -ErrorAction SilentlyContinue } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $staging) { throw 'desktop release: no staging directory found' }
           $release = Join-Path $staging.FullName 'release'
